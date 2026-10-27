@@ -1,0 +1,70 @@
+# ==========================================
+# Xcode & iOS Core Ignores
+# ==========================================
+
+## Build generated files
+build/
+DerivedData/
+
+## User-specific settings (keeps your personal window layouts/history out of git)
+xcuserdata/
+*.xcuserstate
+
+## Core Data / Xcode modeling remnants
+*.moved-aside
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+
+## Xcode 8 and earlier source control blueprints
+*.xcscmblueprint
+*.xccheckout
+
+# ==========================================
+# App Packaging & Artifacts
+# ==========================================
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# ==========================================
+# Swift Package Manager (SPM)
+# ==========================================
+# Ignore the build directory if you run command line tool builds
+.build/
+
+# UNCOMMENT the line below if you want to avoid checking in SPM dependency source code
+# Packages/
+
+# UNCOMMENT the line below if you prefer your team resolves package versions manually
+# Package.resolved
+
+# ==========================================
+# Dependency Managers (Optional - uncomment if used)
+# ==========================================
+
+## CocoaPods
+# It is generally recommended to keep Pods/ out of source control to save space,
+# but checking it in ensures the project builds without running `pod install`.
+# Pods/
+
+## Carthage
+# Carthage/Checkouts/
+# Carthage/Build/
+
+## Fastlane
+# fastlane/report.xml
+# fastlane/Preview.html
+# fastlane/screenshots/**/*.png
+# fastlane/test_output
+
+# ==========================================
+# macOS System Files
+# ==========================================
+.DS_Store
+._*
+.Thmubnails
+.Spotlight-V100
+.Trashes
+
