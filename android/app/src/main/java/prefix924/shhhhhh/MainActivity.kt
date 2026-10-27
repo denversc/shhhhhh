@@ -8,6 +8,7 @@ import android.view.HapticFeedbackConstants
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -57,6 +58,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -101,7 +103,20 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             ShhhhhhTheme {
-                MainScreen()
+                var hasCompletedOnboarding by rememberSaveable { mutableStateOf(false) }
+
+                Crossfade(
+                    targetState = hasCompletedOnboarding,
+                    label = "OnboardingToMainTransition"
+                ) { completed ->
+                    if (completed) {
+                        MainScreen()
+                    } else {
+                        OnboardingScreen(
+                            onComplete = { hasCompletedOnboarding = true }
+                        )
+                    }
+                }
             }
         }
     }
