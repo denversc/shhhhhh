@@ -8,6 +8,11 @@
 import SwiftUI
 import UIKit
 
+private let sampleCiphertext =
+    "xK89_mZ2Q1pA0-BvL81kLz0P82kL9xK89mZ2Q1pA0-BvL81kLz0P82kL9xK89mZ2Q1pA0-BvL81kLz0P82kL9"
+private let samplePlaintext = "BankPassword123!"
+private let ciphertextCandidateRegex = try! NSRegularExpression(pattern: "[A-Za-z0-9_-]{80,}")
+
 enum EncryptButtonState {
     case encrypt
     case copyCiphertext
@@ -18,10 +23,28 @@ enum DecryptButtonState {
     case copySecret
 }
 
+enum DecryptError: String, Identifiable {
+    case noCandidates
+    case authFailed
+
+    var id: String { rawValue }
+
+    var message: String {
+        switch self {
+        case .noCandidates:
+            return "No Base64URL ciphertext string of 80 or more characters was found in the text box."
+        case .authFailed:
+            return "Ciphertext was found, but it could not be decrypted with this device's private key. It may have been intended for a different recipient or corrupted."
+        }
+    }
+}
+
 struct ContentView: View {
     @State private var text: String = ""
     @State private var encryptState: EncryptButtonState = .encrypt
     @State private var decryptState: DecryptButtonState = .decrypt
+    @State private var overlayError: DecryptError? = nil
+    @State private var alertError: DecryptError? = nil
     @State private var selectedContact: String = "Myself (This Device)"
     @State private var showContactSheet: Bool = false
     @State private var copiedBannerText: String? = nil
@@ -61,7 +84,7 @@ struct ContentView: View {
 
                     Divider()
 
-                    // Multi-line Text Editor
+                    // Multi-line Text Editor (with zero-layout-shift Z-axis ErrorOverlay)
                     ZStack(alignment: .topLeading) {
                         if text.isEmpty {
                             Text("Type message to encrypt or paste text containing ciphertext here...")
@@ -81,6 +104,18 @@ struct ContentView: View {
                             .onChange(of: text) { _, newValue in
                                 handleTextChange(newValue)
                             }
+
+                        if let currentOverlayError = overlayError {
+                            ErrorOverlay(
+                                onDismiss: {
+                                    overlayError = nil
+                                },
+                                onShowDetails: {
+                                    alertError = currentOverlayError
+                                    overlayError = nil
+                                }
+                            )
+                        }
                     }
                     .frame(minHeight: 180, maxHeight: .infinity)
                 }
@@ -206,6 +241,20 @@ struct ContentView: View {
                     .navigationBarTitleDisplayMode(.inline)
                 }
             }
+            .alert(
+                "Decryption Failed",
+                isPresented: Binding(
+                    get: { alertError != nil },
+                    set: { if !$0 { alertError = nil } }
+                ),
+                presenting: alertError
+            ) { _ in
+                Button("OK", role: .cancel) {
+                    alertError = nil
+                }
+            } message: { error in
+                Text(error.message)
+            }
         }
     }
 
@@ -220,11 +269,17 @@ struct ContentView: View {
         }
     }
 
+    private func triggerDecryptError(_ error: DecryptError) {
+        overlayError = error
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+    }
+
     private func handleClear() {
         programmaticTextTarget = nil
         text = ""
         encryptState = .encrypt
         decryptState = .decrypt
+        overlayError = nil
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
@@ -240,6 +295,7 @@ struct ContentView: View {
                 return
             }
         }
+        overlayError = nil
         // Revert morphing buttons whenever text is edited
         if encryptState == .copyCiphertext {
             encryptState = .encrypt
@@ -250,9 +306,9 @@ struct ContentView: View {
     }
 
     private func handleEncryptTap() {
+        overlayError = nil
         if encryptState == .encrypt {
             // Placeholder: Encrypts text in-place into sample Base64URL ciphertext
-            let sampleCiphertext = "xK89_mZ2Q1pA0-BvL81kLz0P82kL9xK89mZ2Q1pA0-BvL81kLz0P82kL9xK89mZ2Q1pA0-BvL81kLz0P82kL9"
             setProgrammaticText(sampleCiphertext)
             encryptState = .copyCiphertext
             decryptState = .decrypt
@@ -266,16 +322,40 @@ struct ContentView: View {
 
     private func handleDecryptTap() {
         if decryptState == .decrypt {
-            // Placeholder: Decrypts in-place and morphs button
-            let samplePlaintext = "Hey honey, here is the password: BankPassword123! let me know when done"
-            setProgrammaticText(samplePlaintext)
-            decryptState = .copySecret
-            encryptState = .encrypt
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            let fullNSRange = NSRange(text.startIndex..<text.endIndex, in: text)
+            let matches = ciphertextCandidateRegex.matches(in: text, range: fullNSRange)
+            if matches.isEmpty {
+                decryptState = .decrypt
+                encryptState = .encrypt
+                triggerDecryptError(.noCandidates)
+            } else {
+                var anyDecrypted = false
+                var updatedText = text
+                for match in matches.reversed() {
+                    guard let swiftRange = Range(match.range, in: updatedText) else { continue }
+                    let candidate = String(updatedText[swiftRange])
+                    if candidate == sampleCiphertext {
+                        updatedText.replaceSubrange(swiftRange, with: samplePlaintext)
+                        anyDecrypted = true
+                    }
+                }
+                if anyDecrypted {
+                    setProgrammaticText(updatedText)
+                    decryptState = .copySecret
+                    encryptState = .encrypt
+                    overlayError = nil
+                    alertError = nil
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                } else {
+                    decryptState = .decrypt
+                    encryptState = .encrypt
+                    triggerDecryptError(.authFailed)
+                }
+            }
         } else {
             // Copy Secret exclusively (1-tap)
-            UIPasteboard.general.string = "BankPassword123!"
-            showCopiedFeedback("Copied secret: BankPassword123!")
+            UIPasteboard.general.string = samplePlaintext
+            showCopiedFeedback("Copied secret: \(samplePlaintext)")
         }
     }
 
@@ -297,6 +377,39 @@ struct ContentView: View {
                 }
             }
         }
+    }
+}
+
+struct ErrorOverlay: View {
+    let onDismiss: () -> Void
+    let onShowDetails: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    onDismiss()
+                }
+
+            Button(action: onShowDetails) {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text("Error")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(
+                    Capsule()
+                        .fill(Color(red: 0xD3 / 255.0, green: 0x2F / 255.0, blue: 0x2F / 255.0))
+                )
+                .shadow(color: Color.black.opacity(0.25), radius: 6, x: 0, y: 3)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
