@@ -3,6 +3,13 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(27)
+        vendor = JvmVendorSpec.ADOPTIUM
+    }
+}
+
 android {
     namespace = "prefix924.shhhhhh"
     compileSdk {
