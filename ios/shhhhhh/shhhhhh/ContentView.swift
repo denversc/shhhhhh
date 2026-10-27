@@ -25,6 +25,7 @@ struct ContentView: View {
     @State private var selectedContact: String = "Myself (This Device)"
     @State private var showContactSheet: Bool = false
     @State private var copiedBannerText: String? = nil
+    @State private var programmaticTextTarget: String? = nil
 
     var body: some View {
         NavigationStack {
@@ -40,7 +41,7 @@ struct ContentView: View {
                                 Text("Clear")
                             }
                             .font(.subheadline)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.primary)
                         }
                         .padding(.trailing, 12)
 
@@ -76,8 +77,8 @@ struct ContentView: View {
                             .padding(.vertical, 4)
                             .scrollContentBackground(.hidden)
                             .background(Color.clear)
-                            .onChange(of: text) { _ in
-                                handleTextChange()
+                            .onChange(of: text) { _, newValue in
+                                handleTextChange(newValue)
                             }
                     }
                     .frame(minHeight: 180, maxHeight: .infinity)
@@ -196,7 +197,17 @@ struct ContentView: View {
 
     // MARK: - Actions
 
+    private func setProgrammaticText(_ newValue: String) {
+        if text != newValue {
+            programmaticTextTarget = newValue
+            text = newValue
+        } else {
+            programmaticTextTarget = nil
+        }
+    }
+
     private func handleClear() {
+        programmaticTextTarget = nil
         text = ""
         encryptState = .encrypt
         decryptState = .decrypt
@@ -208,7 +219,13 @@ struct ContentView: View {
         showCopiedFeedback("Copied full text")
     }
 
-    private func handleTextChange() {
+    private func handleTextChange(_ newValue: String) {
+        if let target = programmaticTextTarget {
+            programmaticTextTarget = nil
+            if newValue == target {
+                return
+            }
+        }
         // Revert morphing buttons whenever text is edited
         if encryptState == .copyCiphertext {
             encryptState = .encrypt
@@ -222,8 +239,9 @@ struct ContentView: View {
         if encryptState == .encrypt {
             // Placeholder: Encrypts text in-place into sample Base64URL ciphertext
             let sampleCiphertext = "xK89_mZ2Q1pA0-BvL81kLz0P82kL9xK89mZ2Q1pA0-BvL81kLz0P82kL9xK89mZ2Q1pA0-BvL81kLz0P82kL9"
-            text = sampleCiphertext
+            setProgrammaticText(sampleCiphertext)
             encryptState = .copyCiphertext
+            decryptState = .decrypt
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         } else {
             // Copy Ciphertext
@@ -235,8 +253,10 @@ struct ContentView: View {
     private func handleDecryptTap() {
         if decryptState == .decrypt {
             // Placeholder: Decrypts in-place and morphs button
-            text = "Hey honey, here is the password: BankPassword123! let me know when done"
+            let samplePlaintext = "Hey honey, here is the password: BankPassword123! let me know when done"
+            setProgrammaticText(samplePlaintext)
             decryptState = .copySecret
+            encryptState = .encrypt
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         } else {
             // Copy Secret exclusively (1-tap)
