@@ -63,17 +63,17 @@ The application allows two parties (such as partners, spouses, or close contacts
 - **Unified Main Screen**:
   - Single multi-line text box for both input and in-place output.
   - **Encrypt / Morphing Action Button**:
-    - Pre-encryption state: Displays as **`[Encrypt]`**. Encrypts text in-place with the selected contact's public key.
-    - Post-encryption state: Morphs in-place into **`[Copy Ciphertext]`** (same physical dimensions, coordinates, and zero layout shift).
+    - Pre-encryption state: Displays as **`[Encrypt]`** (vivid bright blue matching Decrypt button luminance, with a locked padlock icon; identical text size to Decrypt). Encrypts text in-place with the selected contact's public key and resets the Decrypt button to **`[Decrypt]`**.
+    - Post-encryption state: Morphs in-place into **`[Copy]`** with a Copy icon (same physical dimensions, coordinates, and zero layout shift).
       - **Tap**: Instantly copies the resulting ciphertext to the clipboard (1 click).
-      - **Reversion**: As soon as the text inside the text box is edited, typed into, or replaced, the button reverts to **`[Encrypt]`**.
+      - **Reversion**: As soon as the text inside the text box is edited, typed into, replaced, or **Decrypt** is clicked, the button reverts to **`[Encrypt]`**.
   - **Decrypt / Morphing Action Button**:
-    - Pre-decryption state: Displays as **`[Decrypt]`**. Decrypts text in-place using device's private key and ephemeral key in payload.
-    - Post-decryption state: Morphs in-place into **`[Copy Secret]`** (same physical dimensions, coordinates, and zero layout shift).
+    - Pre-decryption state: Displays as **`[Decrypt]`** (vivid forest green, with an unlocked padlock icon; identical text size to Encrypt). Decrypts text in-place using device's private key and ephemeral key in payload, and resets the Encrypt button to **`[Encrypt]`**.
+    - Post-decryption state: Morphs in-place into **`[Copy Secret]`** with a Copy icon (same physical dimensions, coordinates, and zero layout shift).
       - **Tap (Single Secret)**: Instantly copies exclusively the decrypted secret to the clipboard (1 click).
       - **Tap (Multiple Secrets)**: Opens an overlay sheet/picker to select which decrypted secret to copy (2-step).
       - **Long-Press**: Copies the entire contents of the text box (the decrypted secret and all surrounding conversational text).
-      - **Reversion**: As soon as the text inside the text box is edited, typed into, or replaced, the button reverts to **`[Decrypt]`**.
+      - **Reversion**: As soon as the text inside the text box is edited, typed into, replaced, or **Encrypt** is clicked, the button reverts to **`[Decrypt]`**.
   - **Copy Button**: Positioned conveniently near the text box; copies whatever text is currently in the text box directly to the clipboard verbatim (no auto-copy, no whitespace stripping, even if empty).
   - **Clear Button**: A dedicated one-tap button (e.g., positioned inside the text box corner or adjacent to Copy in a fixed position) that immediately wipes all text from the box, resets the Encrypt/Decrypt buttons back to their default states, and dismisses any active error overlays.
   - **Contact Selector Widget**: Positioned adjacent to action buttons, showing current recipient (defaults to "Myself"). Tapping it opens the Contact Selection sheet.
@@ -102,8 +102,8 @@ The application allows two parties (such as partners, spouses, or close contacts
   5. App performs ECDH with recipient's public key, derives a 256-bit key via HKDF-SHA256, and encrypts with ChaCha20-Poly1305.
   6. Payload (`ephemeralPubKey[32] + nonce[12] + ciphertext[N] + poly1305Tag[16]`) is encoded to unpadded Base64URL.
   7. Text box content is replaced in-place with the Base64URL ciphertext string.
-  8. The `[Encrypt]` button morphs in-place into **`[Copy Ciphertext]`**.
-  9. User taps **`[Copy Ciphertext]`** (same physical position) to copy the ciphertext to the clipboard.
+  8. The `[Encrypt]` button morphs in-place into **`[Copy]`** (with a Copy icon), and resets the Decrypt button to **`[Decrypt]`**.
+  9. User taps **`[Copy]`** (same physical position) to copy the ciphertext to the clipboard.
 
 - **Message Decryption Flow**:
   1. User pastes message into the text box (which may include conversational text like *"Here is the bank password: `<blob1>` and wifi: `<blob2>`"*). If empty, tapping **Decrypt** displays the red `[Error]` overlay (no candidate found).
@@ -195,7 +195,7 @@ The application allows two parties (such as partners, spouses, or close contacts
 ---
 
 ### Screen 3: Unified Main Screen (Post-Encryption State)
-*Note: Exact same layout coordinates; `[Encrypt]` morphs into `[Copy Ciphertext]` with zero layout shift.*
+*Note: Exact same layout coordinates; `[Encrypt]` morphs into `[Copy]` with zero layout shift.*
 ```text
 +------------------------------------------+
 | shhhhhh                                  |
@@ -211,7 +211,7 @@ The application allows two parties (such as partners, spouses, or close contacts
 |  +------------------------------------+  |
 |                                          |
 |  +------------------+  +--------------+  |
-|  | [Copy Ciphertext]|  |  [Decrypt]   |  |  <- Tap to copy ciphertext
+|  |      [Copy]      |  |  [Decrypt]   |  |  <- Tap to copy ciphertext
 |  +------------------+  +--------------+  |
 |                                          |
 |  +------------------------------------+  |
@@ -357,8 +357,9 @@ The application allows two parties (such as partners, spouses, or close contacts
 - **[Decided] Screen Layout & Navigation**: Unified single-screen architecture. Separate Encrypt and Decrypt buttons. Contact Selector widget adjacent to buttons. Empty contacts default to "Myself". Contact selection sheet/dialog displays even if only one contact exists. Editing/deleting contacts deferred to future releases.
 - **[Decided] Text Box & Clipboard UX**: Single shared multi-line text box with in-place text replacement. Dedicated "Copy" button that verbatim copies whatever text is in the box (even empty, no trimming). Dedicated "Clear" button that instantly wipes the text box and resets state. No automatic clipboard overwriting.
 - **[Decided] Zero Layout Shift & Post-Action Copying**:
-  - `[Encrypt]` morphs in-place into `[Copy Ciphertext]`.
-  - `[Decrypt]` morphs in-place into `[Copy Secret]`. Tap copies isolated secret (or opens picker for multiple secrets); long-press copies entire text box.
+  - `[Encrypt]` morphs in-place into `[Copy]` (with Copy icon).
+  - `[Decrypt]` morphs in-place into `[Copy Secret]` (with Copy icon). Tap copies isolated secret (or opens picker for multiple secrets); long-press copies entire text box.
+  - Clicking `Encrypt` resets the Decrypt button to `[Decrypt]`, and clicking `Decrypt` resets the Encrypt button to `[Encrypt]`.
   - Text box supports Inline Tappable Spans for decrypted secrets.
   - Editing text reverts buttons to `[Encrypt]` and `[Decrypt]`.
 - **[Decided] Error Handling**: Centered red `[Error]` button overlay inside text box (zero layout shift). Dismisses on tap-outside or typing. Tapping the button shows a native modal Alert dialog with the detailed error.

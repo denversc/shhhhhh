@@ -10,6 +10,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,11 +28,11 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DividerDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -65,7 +66,7 @@ import prefix924.shhhhhh.ui.theme.ShhhhhhTheme
 
 enum class EncryptButtonState {
     ENCRYPT,
-    COPY_CIPHERTEXT
+    COPY
 }
 
 enum class DecryptButtonState {
@@ -177,7 +178,7 @@ fun MainScreen() {
                         }
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Share,
+                            imageVector = Icons.Default.ContentCopy,
                             contentDescription = "Copy",
                             modifier = Modifier.size(16.dp)
                         )
@@ -207,7 +208,7 @@ fun MainScreen() {
                         value = text,
                         onValueChange = { newText ->
                             text = newText
-                            if (encryptState == EncryptButtonState.COPY_CIPHERTEXT) {
+                            if (encryptState == EncryptButtonState.COPY) {
                                 encryptState = EncryptButtonState.ENCRYPT
                             }
                             if (decryptState == DecryptButtonState.COPY_SECRET) {
@@ -231,38 +232,52 @@ fun MainScreen() {
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // Encrypt / Morphing Button
-                Button(
-                    onClick = {
-                        if (encryptState == EncryptButtonState.ENCRYPT) {
-                            val sampleCiphertext =
-                                "xK89_mZ2Q1pA0-BvL81kLz0P82kL9xK89mZ2Q1pA0-BvL81kLz0P82kL9xK89mZ2Q1pA0-BvL81kLz0P82kL9"
-                            text = sampleCiphertext
-                            encryptState = EncryptButtonState.COPY_CIPHERTEXT
-                        } else {
-                            copyToClipboard(text, "shhhhhh_ciphertext", "Copied ciphertext")
-                        }
-                    },
+                Box(
                     modifier = Modifier
                         .weight(1f)
-                        .height(50.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (encryptState == EncryptButtonState.ENCRYPT)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.tertiary
-                    )
+                        .height(50.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(
+                            if (encryptState == EncryptButtonState.ENCRYPT)
+                                Color(0xFF1A73E8) // Vivid bright blue matching Decrypt green luminance
+                            else
+                                Color(0xFF5E35B1) // Vivid indigo/purple
+                        )
+                        .clickable {
+                            if (encryptState == EncryptButtonState.ENCRYPT) {
+                                val sampleCiphertext =
+                                    "xK89_mZ2Q1pA0-BvL81kLz0P82kL9xK89mZ2Q1pA0-BvL81kLz0P82kL9xK89mZ2Q1pA0-BvL81kLz0P82kL9"
+                                text = sampleCiphertext
+                                encryptState = EncryptButtonState.COPY
+                                decryptState = DecryptButtonState.DECRYPT
+                            } else {
+                                copyToClipboard(text, "shhhhhh_ciphertext", "Copied ciphertext")
+                            }
+                        }
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (encryptState == EncryptButtonState.ENCRYPT) "Encrypt" else "Copy Ciphertext",
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (encryptState == EncryptButtonState.ENCRYPT)
+                                Icons.Default.Lock
+                            else
+                                Icons.Default.ContentCopy,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (encryptState == EncryptButtonState.ENCRYPT) "Encrypt" else "Copy",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
+                        )
+                    }
                 }
 
                 // Decrypt / Morphing Button (Supports Tap and Long-Press)
@@ -282,6 +297,7 @@ fun MainScreen() {
                                 if (decryptState == DecryptButtonState.DECRYPT) {
                                     text = "Hey honey, here is the password: BankPassword123! let me know when done"
                                     decryptState = DecryptButtonState.COPY_SECRET
+                                    encryptState = EncryptButtonState.ENCRYPT
                                 } else {
                                     copyToClipboard("BankPassword123!", "shhhhhh_secret", "Copied secret: BankPassword123!")
                                 }
@@ -291,14 +307,18 @@ fun MainScreen() {
                                     copyToClipboard(text, "shhhhhh_full", "Copied full message")
                                 }
                             }
-                        ),
+                        )
+                        .padding(horizontal = 12.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Lock,
+                            imageVector = if (decryptState == DecryptButtonState.DECRYPT)
+                                Icons.Default.LockOpen
+                            else
+                                Icons.Default.ContentCopy,
                             contentDescription = null,
                             tint = Color.White,
                             modifier = Modifier.size(18.dp)
@@ -307,7 +327,9 @@ fun MainScreen() {
                         Text(
                             text = if (decryptState == DecryptButtonState.DECRYPT) "Decrypt" else "Copy Secret",
                             color = Color.White,
-                            fontWeight = FontWeight.SemiBold
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
                         )
                     }
                 }
