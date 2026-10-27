@@ -26,6 +26,7 @@ struct ContentView: View {
     @State private var showContactSheet: Bool = false
     @State private var copiedBannerText: String? = nil
     @State private var programmaticTextTarget: String? = nil
+    @State private var isDecryptPressed: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -106,24 +107,37 @@ struct ContentView: View {
                         .cornerRadius(10)
                     }
 
-                    // Decrypt / Morphing Button (Supports Tap and Long-Press)
-                    Button(action: handleDecryptTap) {
-                        HStack(spacing: 6) {
-                            Image(systemName: decryptState == .decrypt ? "lock.open.fill" : "key.fill")
-                            Text(decryptState == .decrypt ? "Decrypt" : "Copy Secret")
-                                .fontWeight(.semibold)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                        .background(decryptState == .decrypt ? Color.green : Color.orange)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
+                    // Decrypt / Morphing Button (Supports Tap and Long-Press; mutually exclusive)
+                    HStack(spacing: 6) {
+                        Image(systemName: decryptState == .decrypt ? "lock.open.fill" : "key.fill")
+                        Text(decryptState == .decrypt ? "Decrypt" : "Copy Secret")
+                            .fontWeight(.semibold)
                     }
-                    .simultaneousGesture(
-                        LongPressGesture(minimumDuration: 0.6).onEnded { _ in
-                            handleDecryptLongPress()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(decryptState == .decrypt ? Color.green : Color.orange)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+                    .opacity(isDecryptPressed ? 0.75 : 1.0)
+                    .contentShape(Rectangle())
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.isButton)
+                    .onLongPressGesture(
+                        minimumDuration: 0.5,
+                        perform: {
+                            if decryptState == .copySecret {
+                                handleDecryptLongPress()
+                            } else {
+                                handleDecryptTap()
+                            }
+                        },
+                        onPressingChanged: { isPressing in
+                            isDecryptPressed = isPressing
                         }
                     )
+                    .onTapGesture {
+                        handleDecryptTap()
+                    }
                 }
 
                 // Contact Selector Widget (Positioned Adjacent to Action Buttons)
