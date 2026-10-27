@@ -15,12 +15,12 @@ The application allows two parties (such as partners, spouses, or close contacts
 
 ## 2. Platform Architecture & Tech Stack
 - **Supported Platforms**:
-  - **iOS**: Swift / SwiftUI (Target: iOS 16+)
-  - **Android**: Kotlin / Jetpack Compose (`minSdkVersion: 33` / Android 13+)
+  - **iOS**: Swift / SwiftUI (Bundle ID: `prefix924.shhhhhh`, Target: iOS 16+)
+  - **Android**: Kotlin / Jetpack Compose (Package: `prefix924.shhhhhh`, `minSdkVersion: 37` / Android 17.0)
 - **Code Sharing**: None (completely independent native implementations)
 - **Repository Structure**:
   - `android/`: Native Android project (Gradle, Kotlin, Jetpack Compose)
-  - `ios/`: Native iOS project (Xcode / Swift Package, SwiftUI)
+  - `ios/shhhhhh/`: Native iOS project (`shhhhhh.xcodeproj`, SwiftUI)
   - `docs/`: Product specifications, architecture, and design documents
 - **Cross-Platform Parity**: Identical UX flows, visual styling, cryptographic algorithms, and serialization formats to ensure complete cross-platform interoperability.
 
@@ -364,12 +364,12 @@ The application allows two parties (such as partners, spouses, or close contacts
 - **[Decided] Error Handling**: Centered red `[Error]` button overlay inside text box (zero layout shift). Dismisses on tap-outside or typing. Tapping the button shows a native modal Alert dialog with the detailed error.
 - **[Decided] First-Launch Experience**: Welcome screen with interactive touch/draw entropy collection canvas. Spinner during key generation. User cannot proceed until keys are generated.
 - **[Decided] Contact Management & Key Sharing**: Centralized inside the Contact Selection sheet/UI. Smart key extraction parses 43-character Base64URL public keys from pasted text, ignoring conversational chatter.
-- **[Decided] Cryptographic Suite**: X25519 + HKDF-SHA256 + ChaCha20-Poly1305 with explicit 12-byte nonce (61 bytes minimum overhead). Supported natively on iOS (`CryptoKit`) and Android (`minSdkVersion: 33`).
+- **[Decided] Cryptographic Suite**: X25519 + HKDF-SHA256 + ChaCha20-Poly1305 with explicit 12-byte nonce (61 bytes minimum overhead). Supported natively on iOS (`CryptoKit`) and Android (`minSdkVersion: 37`).
 - **[Decided] Wire Encoding Scheme**: Unpadded Base64URL (`A-Z`, `a-z`, `0-9`, `-`, `_`). All characters in basic GSM 7-bit alphabet.
 - **[Decided] In-Place Decryption**: All candidate Base64URL strings $\ge 80$ chars are decoded in-place. Failed candidates remain as ciphertext. Encrypting empty text is allowed.
 - **[Decided] Key & Contact Migration**: Paper Backup model. Users can export their keys and contacts as a self-contained bundle for physical safekeeping or manual migration to a new device. First-launch onboarding includes a "Restore from Backup" option.
 - **[Decided] Theming**: Custom theme selector supporting System Default, Light, and Dark modes.
-- **[Decided] Repository Structure**: Top-level `android/` and `ios/` folders containing independent native projects alongside `docs/`.
+- **[Decided] Repository Structure**: Top-level `android/` and `ios/shhhhhh/` folders containing independent native projects with bundle/package ID `prefix924.shhhhhh`.
 
 
 
