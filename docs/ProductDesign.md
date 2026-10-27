@@ -134,7 +134,202 @@ The application allows two parties (such as partners, spouses, or close contacts
 
 ---
 
-## 5. Technical & Security Specifications
+## 5. UI/UX Wireframes & Screen States
+
+### Screen 1: First-Launch Onboarding & Entropy Collection
+```text
++------------------------------------------+
+|                 shhhhhh                  |
+|                                          |
+|          Welcome to shhhhhh              |
+|                                          |
+|  Private end-to-end encryption for your  |
+|  text messages. To initialize your key,  |
+|  scribble or tap randomly in the box:    |
+|                                          |
+|  +------------------------------------+  |
+|  | ~ ~ . *  . *   ~  .  *  ~  .  *    |  |
+|  |   .   *   ~  .  ~     *   .    ~   |  |
+|  | *   ~   .    *    ~ .    *   .     |  |
+|  |       [ Interactive Canvas ]       |  |
+|  |   . *   ~  .   *    ~  .   *   ~   |  |
+|  +------------------------------------+  |
+|                                          |
+|  Entropy Collection: [==========   ] 75% |
+|                                          |
+|  [     ⏳ Generating Key Pair...      ]  |
+|  (Disabled until 100% entropy gathered)  |
+|                                          |
+|  --------------------------------------  |
+|        [ Restore from Backup ]           |
++------------------------------------------+
+```
+
+---
+
+### Screen 2: Unified Main Screen (Default / Idle State)
+```text
++------------------------------------------+
+| shhhhhh                                  |
++------------------------------------------+
+|  +------------------------------------+  |
+|  | Type message to encrypt or paste   |  |
+|  | text containing ciphertext here... |  |
+|  |                                    |  |
+|  |                                    |  |
+|  |                                    |  |
+|  |                                    |  |
+|  |                      [Clear] [Copy]|  |
+|  +------------------------------------+  |
+|                                          |
+|  +------------------+  +--------------+  |
+|  |    [Encrypt]     |  |  [Decrypt]   |  |
+|  +------------------+  +--------------+  |
+|                                          |
+|  +------------------------------------+  |
+|  | Recipient: [ Myself (This Device) ▾]  |
+|  +------------------------------------+  |
++------------------------------------------+
+```
+
+---
+
+### Screen 3: Unified Main Screen (Post-Encryption State)
+*Note: Exact same layout coordinates; `[Encrypt]` morphs into `[Copy Ciphertext]` with zero layout shift.*
+```text
++------------------------------------------+
+| shhhhhh                                  |
++------------------------------------------+
+|  +------------------------------------+  |
+|  | xK89_mZ2Q1pA0-BvL81kLz0P82kL9_...  |  |
+|  | (Base64URL ciphertext string)      |  |
+|  |                                    |  |
+|  |                                    |  |
+|  |                                    |  |
+|  |                                    |  |
+|  |                      [Clear] [Copy]|  |
+|  +------------------------------------+  |
+|                                          |
+|  +------------------+  +--------------+  |
+|  | [Copy Ciphertext]|  |  [Decrypt]   |  |  <- Tap to copy ciphertext
+|  +------------------+  +--------------+  |
+|                                          |
+|  +------------------------------------+  |
+|  | Recipient: [ Myself (This Device) ▾]  |
+|  +------------------------------------+  |
++------------------------------------------+
+```
+
+---
+
+### Screen 4: Unified Main Screen (Post-Decryption State)
+*Note: Decrypted text replaced in-place; inline highlighted span is tappable; `[Decrypt]` morphs into `[Copy Secret]`.*
+```text
++------------------------------------------+
+| shhhhhh                                  |
++------------------------------------------+
+|  +------------------------------------+  |
+|  | Hey honey, here is the password:   |  |
+|  | +--------------------------------+ |  |
+|  | | 🔒 BankPassword123!             | |  |  <- Inline Tappable Span
+|  | +--------------------------------+ |  |     (Tap to copy secret)
+|  | let me know when you are done!     |  |
+|  |                      [Clear] [Copy]|  |
+|  +------------------------------------+  |
+|                                          |
+|  +------------------+  +--------------+  |
+|  |    [Encrypt]     |  | [Copy Secret]|  |  <- Tap: Copy secret (1-tap)
+|  +------------------+  +--------------+  |     Long-press: Copy all text
+|                                          |
+|  +------------------------------------+  |
+|  | Recipient: [ Myself (This Device) ▾]  |
+|  +------------------------------------+  |
++------------------------------------------+
+```
+
+---
+
+### Screen 5: Unified Main Screen (Decryption Failure / Error Overlay)
+*Note: Centered red button overlay inside text box; zero layout shift; tap outside dismisses.*
+```text
++------------------------------------------+
+| shhhhhh                                  |
++------------------------------------------+
+|  +------------------------------------+  |
+|  | Random chatter without valid       |  |
+|  | ciphertext strings...              |  |
+|  |          +----------------+        |  |
+|  |          |   ⚠️  Error    |        |  |  <- Red overlay button
+|  |          +----------------+        |  |     (Tap: Opens Alert dialog;
+|  |                                    |  |      Tap outside: Dismisses)
+|  |                      [Clear] [Copy]|  |
+|  +------------------------------------+  |
+|                                          |
+|  +------------------+  +--------------+  |
+|  |    [Encrypt]     |  |  [Decrypt]   |  |  <- Fixed, unmoving position
+|  +------------------+  +--------------+  |
+|                                          |
+|  +------------------------------------+  |
+|  | Recipient: [ Myself (This Device) ▾]  |
+|  +------------------------------------+  |
++------------------------------------------+
+```
+
+---
+
+### Screen 6: Contact Selection & Management Sheet (Modal)
+*Opened by tapping the Contact Selector widget.*
+```text
++------------------------------------------+
+|                [======]                  |
+|          Contacts & Settings             |
++------------------------------------------+
+| MY PUBLIC KEY                            |
+| 3kL9_xK89mZ2Q1pA0BvL81kLz0P82kL9xK89mZ2Q |
+| [📋 Copy My Public Key]                  |
++------------------------------------------+
+| CONTACTS                                 |
+|  ✓ Myself (This Device)                  |
+|    Wife                                  |
+|    Accountant                            |
++------------------------------------------+
+|  [ + Add New Contact ]                   |
++------------------------------------------+
+| BACKUP & MIGRATION                       |
+|  [ Export Paper Backup ]                 |
++------------------------------------------+
+| APPEARANCE                               |
+|  Theme: [ System Default | Light | Dark ]|
++------------------------------------------+
+```
+
+---
+
+### Screen 7: Add Contact Modal Form
+```text
++------------------------------------------+
+|                [======]                  |
+|            Add New Contact               |
++------------------------------------------+
+| Contact Name:                            |
+| [ Wife                                 ] |
+|                                          |
+| Public Key:                              |
+| [ Pasted text or key...                ] |
+| [ 📋 Paste from Clipboard ]              |
+|                                          |
+| (Smart extractor automatically detects   |
+|  and extracts the 43-character key)      |
+|                                          |
+|  +------------------+  +--------------+  |
+|  |     [Cancel]     |  |    [Save]    |  |
+|  +------------------+  +--------------+  |
++------------------------------------------+
+```
+
+---
+
+## 6. Technical & Security Specifications
 - **Design System & Visual Consistency**:
   - **Shared Palette & Styling**: Identical color tokens, font hierarchy, corner radii, and padding across both platforms.
   - **Themes**: Support for **System Default**, **Light**, and **Dark** modes across both iOS (SwiftUI `preferredColorScheme`) and Android (Jetpack Compose `MaterialTheme` color schemes).
@@ -154,7 +349,7 @@ The application allows two parties (such as partners, spouses, or close contacts
 
 ---
 
-## 6. Decisions & Open Questions
+## 7. Decisions & Open Questions
 - **[Decided] Core Vision**: Consumer-focused text encryptor/decryptor over untrusted messaging (SMS/wire) using clipboard copy/paste.
 - **[Decided] Scope of At-Rest Protection**: Encryption at rest on device is not required.
 - **[Decided] Key Management Model**: Asymmetric public/private key pairs. Each user generates keys using device entropy. Users exchange public keys out-of-band and maintain an in-app Contact List.
