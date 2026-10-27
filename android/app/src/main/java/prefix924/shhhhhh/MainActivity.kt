@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Bundle
+import android.view.HapticFeedbackConstants
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -12,6 +13,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +25,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -32,6 +35,8 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DividerDefaults
@@ -43,6 +48,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -57,12 +63,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import prefix924.shhhhhh.ui.theme.ShhhhhhTheme
+
+private const val SAMPLE_CIPHERTEXT =
+    "xK89_mZ2Q1pA0-BvL81kLz0P82kL9xK89mZ2Q1pA0-BvL81kLz0P82kL9xK89mZ2Q1pA0-BvL81kLz0P82kL9"
+private const val SAMPLE_PLAINTEXT = "BankPassword123!"
+private val CIPHERTEXT_CANDIDATE_REGEX = Regex("[A-Za-z0-9_-]{80,}")
 
 enum class EncryptButtonState {
     ENCRYPT,
@@ -72,6 +84,15 @@ enum class EncryptButtonState {
 enum class DecryptButtonState {
     DECRYPT,
     COPY_SECRET
+}
+
+enum class DecryptError(val message: String) {
+    NO_CANDIDATES(
+        "No Base64URL ciphertext string of 80 or more characters was found in the text box."
+    ),
+    AUTH_FAILED(
+        "Ciphertext was found, but it could not be decrypted with this device's private key. It may have been intended for a different recipient or corrupted."
+    )
 }
 
 class MainActivity : ComponentActivity() {
@@ -90,6 +111,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen() {
     val context = LocalContext.current
+    val view = LocalView.current
     val clipboardManager = remember {
         context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     }
@@ -99,6 +121,8 @@ fun MainScreen() {
     var text by remember { mutableStateOf("") }
     var encryptState by remember { mutableStateOf(EncryptButtonState.ENCRYPT) }
     var decryptState by remember { mutableStateOf(DecryptButtonState.DECRYPT) }
+    var overlayError by remember { mutableStateOf<DecryptError?>(null) }
+    var dialogError by remember { mutableStateOf<DecryptError?>(null) }
     var selectedContact by remember { mutableStateOf("Myself (This Device)") }
     var showContactSheet by remember { mutableStateOf(false) }
 
@@ -108,6 +132,11 @@ fun MainScreen() {
         scope.launch {
             snackbarHostState.showSnackbar(message)
         }
+    }
+
+    fun triggerDecryptError(error: DecryptError) {
+        overlayError = error
+        view.performHapticFeedback(HapticFeedbackConstants.REJECT)
     }
 
     Scaffold(
@@ -159,6 +188,7 @@ fun MainScreen() {
                             text = ""
                             encryptState = EncryptButtonState.ENCRYPT
                             decryptState = DecryptButtonState.DECRYPT
+                            overlayError = null
                         }
                     ) {
                         Icon(
@@ -189,38 +219,55 @@ fun MainScreen() {
 
                 HorizontalDivider(color = DividerDefaults.color.copy(alpha = 0.5f))
 
-                // Text Input Area
+                // Text Input Area (with zero-layout-shift Z-axis ErrorOverlay)
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .padding(14.dp)
                 ) {
-                    if (text.isEmpty()) {
-                        Text(
-                            text = "Type message to encrypt or paste text containing ciphertext here...",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(14.dp)
+                    ) {
+                        if (text.isEmpty()) {
+                            Text(
+                                text = "Type message to encrypt or paste text containing ciphertext here...",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        }
+
+                        BasicTextField(
+                            value = text,
+                            onValueChange = { newText ->
+                                text = newText
+                                overlayError = null
+                                if (encryptState == EncryptButtonState.COPY) {
+                                    encryptState = EncryptButtonState.ENCRYPT
+                                }
+                                if (decryptState == DecryptButtonState.COPY_SECRET) {
+                                    decryptState = DecryptButtonState.DECRYPT
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                            textStyle = TextStyle(
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 16.sp
+                            )
                         )
                     }
 
-                    BasicTextField(
-                        value = text,
-                        onValueChange = { newText ->
-                            text = newText
-                            if (encryptState == EncryptButtonState.COPY) {
-                                encryptState = EncryptButtonState.ENCRYPT
+                    val currentOverlayError = overlayError
+                    if (currentOverlayError != null) {
+                        ErrorOverlay(
+                            onDismiss = { overlayError = null },
+                            onShowDetails = {
+                                dialogError = currentOverlayError
+                                overlayError = null
                             }
-                            if (decryptState == DecryptButtonState.COPY_SECRET) {
-                                decryptState = DecryptButtonState.DECRYPT
-                            }
-                        },
-                        modifier = Modifier.fillMaxSize(),
-                        textStyle = TextStyle(
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 16.sp
                         )
-                    )
+                    }
                 }
             }
 
@@ -244,10 +291,9 @@ fun MainScreen() {
                                 Color(0xFF5E35B1) // Vivid indigo/purple
                         )
                         .clickable {
+                            overlayError = null
                             if (encryptState == EncryptButtonState.ENCRYPT) {
-                                val sampleCiphertext =
-                                    "xK89_mZ2Q1pA0-BvL81kLz0P82kL9xK89mZ2Q1pA0-BvL81kLz0P82kL9xK89mZ2Q1pA0-BvL81kLz0P82kL9"
-                                text = sampleCiphertext
+                                text = SAMPLE_CIPHERTEXT
                                 encryptState = EncryptButtonState.COPY
                                 decryptState = DecryptButtonState.DECRYPT
                             } else {
@@ -295,11 +341,39 @@ fun MainScreen() {
                         .combinedClickable(
                             onClick = {
                                 if (decryptState == DecryptButtonState.DECRYPT) {
-                                    text = "Hey honey, here is the password: BankPassword123! let me know when done"
-                                    decryptState = DecryptButtonState.COPY_SECRET
-                                    encryptState = EncryptButtonState.ENCRYPT
+                                    val matches = CIPHERTEXT_CANDIDATE_REGEX.findAll(text).toList()
+                                    if (matches.isEmpty()) {
+                                        decryptState = DecryptButtonState.DECRYPT
+                                        encryptState = EncryptButtonState.ENCRYPT
+                                        triggerDecryptError(DecryptError.NO_CANDIDATES)
+                                    } else {
+                                        var anyDecrypted = false
+                                        val replacedText = CIPHERTEXT_CANDIDATE_REGEX.replace(text) { match ->
+                                            if (match.value == SAMPLE_CIPHERTEXT) {
+                                                anyDecrypted = true
+                                                SAMPLE_PLAINTEXT
+                                            } else {
+                                                match.value
+                                            }
+                                        }
+                                        if (anyDecrypted) {
+                                            text = replacedText
+                                            decryptState = DecryptButtonState.COPY_SECRET
+                                            encryptState = EncryptButtonState.ENCRYPT
+                                            overlayError = null
+                                            dialogError = null
+                                        } else {
+                                            decryptState = DecryptButtonState.DECRYPT
+                                            encryptState = EncryptButtonState.ENCRYPT
+                                            triggerDecryptError(DecryptError.AUTH_FAILED)
+                                        }
+                                    }
                                 } else {
-                                    copyToClipboard("BankPassword123!", "shhhhhh_secret", "Copied secret: BankPassword123!")
+                                    copyToClipboard(
+                                        SAMPLE_PLAINTEXT,
+                                        "shhhhhh_secret",
+                                        "Copied secret: $SAMPLE_PLAINTEXT"
+                                    )
                                 }
                             },
                             onLongClick = {
@@ -382,6 +456,24 @@ fun MainScreen() {
             }
         }
 
+        // Decryption Failure Detail Modal Dialog
+        dialogError?.let { error ->
+            AlertDialog(
+                onDismissRequest = { dialogError = null },
+                title = {
+                    Text(text = "Decryption Failed")
+                },
+                text = {
+                    Text(text = error.message)
+                },
+                confirmButton = {
+                    TextButton(onClick = { dialogError = null }) {
+                        Text(text = "OK")
+                    }
+                }
+            )
+        }
+
         // Contact Sheet Modal Placeholder (Piece 2)
         if (showContactSheet) {
             val sheetState = rememberModalBottomSheetState()
@@ -409,6 +501,52 @@ fun MainScreen() {
                         Text("Close")
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun ErrorOverlay(
+    onDismiss: () -> Unit,
+    onShowDetails: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onDismiss
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            onClick = onShowDetails,
+            shape = CircleShape,
+            color = Color(0xFFD32F2F),
+            contentColor = Color.White,
+            shadowElevation = 6.dp
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Error",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
     }
