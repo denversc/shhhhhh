@@ -24,6 +24,38 @@ All locking operations operate on **arbitrary resource names** (e.g. `ios-simula
 
 ---
 
+## Required & Optional Parameters
+
+* **`--conversation-id` / `-c` (Required)**: An opaque identifier for your Antigravity conversation (found in conversation metadata, e.g. `a6dc63ae-bce3-4d54-8c26-391b4ca2495e`). Passed to `run`, `acquire`, and `release`.
+* **`--description` / `-d` (Optional)**: An arbitrary human-friendly string describing the purpose of the lock being held (e.g., `"Running Xcode UI tests on iPhone 16"`).
+* **`--force` / `-f` (Optional on `release`)**: Allows releasing an active lock even if the caller's conversation ID does not match the active holder's ID.
+
+---
+
+## Real-Time JSON Status Reporting on stdout
+
+When a lock acquisition **waits** for a held resource or **fails** (times out), `lock.py` writes a structured JSON object to `stdout`:
+
+```json
+{
+  "event": "waiting",
+  "resource": "ios-simulator",
+  "conversation_id": "conv-alpha",
+  "holder_conversation_id": "conv-alpha",
+  "acquired_ms_ago": 12450,
+  "lease_duration_ms": 300000,
+  "lease_ms": 300000,
+  "description": "Running UI tests",
+  "mode": "lease"
+}
+```
+
+* **Event De-duplication**: When waiting for a contested lock, the JSON object is emitted to `stdout` **ONCE** when waiting begins, and re-emitted only if ownership transfers to a different conversation while waiting.
+* **Failure Event**: If the wait timeout elapses without acquiring the lock, a final JSON object with `"event": "failed"` and `"reason"` is written to `stdout`.
+* **Process-Scoped Commands (`run`)**: When the lock is held by a `run` command (rather than a timed lease), `lease_duration_ms` / `lease_ms` is set to `null`.
+
+---
+
 ## Modes of Operation
 
 This skill supports two complementary locking patterns:
@@ -41,11 +73,12 @@ When the user says something like:
 
 Follow these behavioral guidelines:
 
-1. **Identify the Resource Name**: Extract the resource name (e.g., `ios-simulator`, `android-device`, `foobar`). Resource names are case-insensitive and whitespace/underscores are automatically normalized to hyphens.
-2. **Choose the Granularity**:
-   - If performing **a single command or self-contained test script**: Use `run` to wrap the command.
-   - If performing a **multi-turn exploratory or interactive procedure**: Call `acquire` before the first command touching the resource, perform your actions across turns, and call `release` as soon as your task concludes.
-3. **Handle Contested Resources**: By default, commands wait up to 60 seconds (`--wait 60`) for an active holder to finish. If the wait times out, report the holder PID and current status to the user.
+1. **Obtain Conversation ID**: Find your active Conversation ID from your system prompt/metadata.
+2. **Identify the Resource Name**: Extract the resource name (e.g., `ios-simulator`, `android-device`, `foobar`). Resource names are case-insensitive and whitespace/underscores are automatically normalized to hyphens.
+3. **Choose the Granularity**:
+   - If performing **a single command or self-contained test script**: Use `run` with `--conversation-id` to wrap the command.
+   - If performing a **multi-turn exploratory or interactive procedure**: Call `acquire` with `--conversation-id` before the first command touching the resource, perform your actions across turns, and call `release` with your `--conversation-id` as soon as your task concludes.
+4. **Handle Contested Resources**: By default, commands wait up to 60 seconds (`--wait 60`) for an active holder to finish. Inspect the JSON status emitted to `stdout` to see which conversation currently holds the resource.
 
 ---
 
@@ -58,19 +91,29 @@ All commands are executed using `python3 <path-to-skill>/scripts/lock.py`.
 Executes a command under exclusive lock, automatically freeing it when the process exits.
 
 ```bash
-python3 .agents/skills/resource-lock/scripts/lock.py run --resource <RESOURCE_NAME> [--wait <SECONDS>] -- <COMMAND...>
+python3 .agents/skills/resource-lock/scripts/lock.py run \
+  --conversation-id "<CONVERSATION_ID>" \
+  --resource "<RESOURCE_NAME>" \
+  [--description "<DESCRIPTION>"] \
+  [--wait <SECONDS>] \
+  -- <COMMAND...>
 ```
 
 **Examples:**
 ```bash
 # Launch app in iOS Simulator under exclusive lock
-python3 .agents/skills/resource-lock/scripts/lock.py run --resource "ios-simulator" -- xcrun simctl launch booted com.example.shhhhhh
+python3 .agents/skills/resource-lock/scripts/lock.py run \
+  --conversation-id "a6dc63ae-bce3-4d54-8c26-391b4ca2495e" \
+  --resource "ios-simulator" \
+  --description "Launching app for smoke test" \
+  -- xcrun simctl launch booted com.example.shhhhhh
 
 # Run an adb install command on an Android device with a 90-second wait timeout
-python3 .agents/skills/resource-lock/scripts/lock.py run --resource "android-device" --wait 90 -- ./gradlew installDebug
-
-# Lock an arbitrary custom resource
-python3 .agents/skills/resource-lock/scripts/lock.py run --resource "foobar" -- python3 -m pytest tests/e2e/
+python3 .agents/skills/resource-lock/scripts/lock.py run \
+  --conversation-id "a6dc63ae-bce3-4d54-8c26-391b4ca2495e" \
+  --resource "android-device" \
+  --wait 90 \
+  -- ./gradlew installDebug
 ```
 
 ### 2. Acquiring a Multi-Turn Lease (`acquire`)
@@ -78,34 +121,48 @@ python3 .agents/skills/resource-lock/scripts/lock.py run --resource "foobar" -- 
 Acquires a background lock that persists across multiple agent turns until explicitly released or until the lease duration expires (default: 300 seconds / 5 minutes).
 
 ```bash
-python3 .agents/skills/resource-lock/scripts/lock.py acquire --resource <RESOURCE_NAME> [--lease <SECONDS>] [--wait <SECONDS>]
+python3 .agents/skills/resource-lock/scripts/lock.py acquire \
+  --conversation-id "<CONVERSATION_ID>" \
+  --resource "<RESOURCE_NAME>" \
+  [--description "<DESCRIPTION>"] \
+  [--lease <SECONDS>] \
+  [--wait <SECONDS>]
 ```
 
 **Example:**
 ```bash
-python3 .agents/skills/resource-lock/scripts/lock.py acquire --resource "ios-simulator" --lease 300
+python3 .agents/skills/resource-lock/scripts/lock.py acquire \
+  --conversation-id "a6dc63ae-bce3-4d54-8c26-391b4ca2495e" \
+  --resource "ios-simulator" \
+  --description "Interactive UI debugging session" \
+  --lease 300
 ```
 
 ### 3. Releasing a Lease (`release`)
 
-Releases an active background lease so other conversations can claim the resource.
+Releases an active background lease. By default, only the conversation that acquired the lock can release it. Use `--force` to override if needed.
 
 ```bash
-python3 .agents/skills/resource-lock/scripts/lock.py release --resource <RESOURCE_NAME>
+python3 .agents/skills/resource-lock/scripts/lock.py release \
+  --conversation-id "<CONVERSATION_ID>" \
+  --resource "<RESOURCE_NAME>" \
+  [--force]
 ```
 
 **Example:**
 ```bash
-python3 .agents/skills/resource-lock/scripts/lock.py release --resource "ios-simulator"
+python3 .agents/skills/resource-lock/scripts/lock.py release \
+  --conversation-id "a6dc63ae-bce3-4d54-8c26-391b4ca2495e" \
+  --resource "ios-simulator"
 ```
 
 ### 4. Checking Lock Status (`status`)
 
-Inspects lock state, active holders, elapsed time, and lease expiration.
+Inspects lock state, active holders, conversation IDs, descriptions, and elapsed lease times.
 
 ```bash
 # Check status of a specific resource
-python3 .agents/skills/resource-lock/scripts/lock.py status --resource <RESOURCE_NAME>
+python3 .agents/skills/resource-lock/scripts/lock.py status --resource "<RESOURCE_NAME>"
 
 # Check all active resource locks on the system
 python3 .agents/skills/resource-lock/scripts/lock.py status
