@@ -82,7 +82,7 @@ The application allows two parties (such as partners, spouses, or close contacts
 
 - **Contact Management & Public Key Sharing**:
   - Centralized in the **Contact Selection sheet**:
-    - **My Public Key Section**: Displays user's public key (43-character unpadded Base64URL) with a **Copy My Public Key** action.
+    - **My Public Key Section**: Displays user's public key (43-character unpadded Base64URL) with a **Copy My Public Key** action. Tapping the button copies strictly the raw 43-character Base64URL string directly to the system clipboard (without extra labels, whitespace, or template wrappers) and provides transient confirmation feedback ("Copied public key") alongside a medium haptic confirmation buzz.
     - **Contact List**: Lists "Myself" and added contacts. Tapping a contact selects them and dismisses sheet.
     - **Add Contact Action**: Simple form to enter:
       - **Contact Name**: Display name for the contact.
