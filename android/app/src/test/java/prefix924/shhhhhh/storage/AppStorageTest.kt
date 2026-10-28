@@ -156,6 +156,18 @@ class AppStorageTest : FunSpec({
         AesGcmCipher.decrypt(cipher2, masterKey) shouldBe plaintext
     }
 
+    test("AesGcmCipher encrypt works with explicit SecureRandom") {
+        val masterKey = InMemoryMasterKeyProvider.generateSecretKey()
+        val plaintext = "test_with_explicit_random".toByteArray(Charsets.UTF_8)
+        val customRandom = SecureRandom()
+
+        val encrypted = AesGcmCipher.encrypt(plaintext, masterKey, customRandom)
+        encrypted.size shouldBe (AesGcmCipher.GCM_IV_LENGTH_BYTES + plaintext.size + AesGcmCipher.GCM_TAG_LENGTH_BYTES)
+
+        val decrypted = AesGcmCipher.decrypt(encrypted, masterKey)
+        decrypted shouldBe plaintext
+    }
+
     test("AesGcmCipher throws AEADBadTagException when ciphertext body is tampered with") {
         val masterKey = InMemoryMasterKeyProvider.generateSecretKey()
         val plaintext = ByteArray(32).also { random.nextBytes(it) }

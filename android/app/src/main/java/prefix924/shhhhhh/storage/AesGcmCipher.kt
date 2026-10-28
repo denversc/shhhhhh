@@ -18,19 +18,30 @@ object AesGcmCipher {
     /**
      * Encrypts plaintext bytes using the provided [SecretKey].
      *
+     * Note: AndroidKeyStore keys require randomized encryption by default and reject caller-provided
+     * IVs during encryption. The cipher is therefore initialized without caller-supplied parameters
+     * so that the underlying security provider (or secure hardware / TEE) generates a fresh random IV.
+     *
      * @return `IV (12 bytes) + Ciphertext + Poly/GCM Auth Tag (16 bytes)`
      */
     fun encrypt(
         plaintext: ByteArray,
         secretKey: SecretKey,
-        secureRandom: SecureRandom = SecureRandom()
+        secureRandom: SecureRandom? = null
     ): ByteArray {
-        val iv = ByteArray(GCM_IV_LENGTH_BYTES).also { secureRandom.nextBytes(it) }
         val cipher = Cipher.getInstance(TRANSFORMATION)
-        val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey, spec)
+        if (secureRandom != null) {
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey, secureRandom)
+        } else {
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+        }
+        val iv = cipher.iv ?: cipher.parameters?.getParameterSpec(GCMParameterSpec::class.java)?.iv
         val ciphertextWithTag = cipher.doFinal(plaintext)
-        return iv + ciphertextWithTag
+        val finalIv = iv ?: cipher.iv ?: error("Cipher IV must not be null after encryption")
+        require(finalIv.size == GCM_IV_LENGTH_BYTES) {
+            "Expected IV length $GCM_IV_LENGTH_BYTES, but got ${finalIv.size}"
+        }
+        return finalIv + ciphertextWithTag
     }
 
     /**
