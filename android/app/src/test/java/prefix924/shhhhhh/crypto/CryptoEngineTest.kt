@@ -221,6 +221,8 @@ class CryptoEngineTest : FunSpec({
             text = "Here is the bank password: $secret let me know when you are done!",
             secrets = listOf(secret)
         )
+        (result as DecryptResult.Success).ranges.size shouldBe 1
+        result.text.substring(result.ranges[0]) shouldBe secret
     }
 
     test("candidate scanning: successfully decrypts multiple candidates in-place in conversational text") {
@@ -238,6 +240,10 @@ class CryptoEngineTest : FunSpec({
             text = "Hello! Wifi is $secret1 and vault PIN is $secret2. Enjoy!",
             secrets = listOf(secret1, secret2)
         )
+        val success = result as DecryptResult.Success
+        success.ranges.size shouldBe 2
+        success.text.substring(success.ranges[0]) shouldBe secret1
+        success.text.substring(success.ranges[1]) shouldBe secret2
     }
 
     test("candidate scanning: mixed valid and invalid candidates leaves failed candidates intact") {

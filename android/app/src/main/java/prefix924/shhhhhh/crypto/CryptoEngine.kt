@@ -64,7 +64,10 @@ sealed interface DecryptResult {
     data class Success(
         val text: String,
         val secrets: List<String>
-    ) : DecryptResult
+    ) : DecryptResult {
+        var ranges: List<IntRange> = emptyList()
+            internal set
+    }
 
     companion object {
         val NO_CANDIDATES: DecryptResult get() = NoCandidates
@@ -421,11 +424,22 @@ object CryptoEngine {
             return DecryptResult.AuthFailed
         }
 
-        var updatedText = inputText
-        for ((match, decrypted) in successfulMatches.asReversed()) {
-            updatedText = updatedText.replaceRange(match.range, decrypted)
+        val ranges = mutableListOf<IntRange>()
+        val builder = StringBuilder()
+        var lastIndex = 0
+        for ((match, decrypted) in successfulMatches) {
+            builder.append(inputText, lastIndex, match.range.first)
+            val start = builder.length
+            builder.append(decrypted)
+            val end = builder.length
+            ranges.add(start until end)
+            lastIndex = match.range.last + 1
         }
+        builder.append(inputText, lastIndex, inputText.length)
+        val updatedText = builder.toString()
 
-        return DecryptResult.Success(text = updatedText, secrets = secrets)
+        val success = DecryptResult.Success(text = updatedText, secrets = secrets)
+        success.ranges = ranges
+        return success
     }
 }
