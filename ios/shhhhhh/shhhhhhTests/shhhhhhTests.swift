@@ -7,6 +7,7 @@
 
 import CryptoKit
 import Foundation
+import SwiftUI
 import Testing
 import UIKit
 @testable import shhhhhh
@@ -897,6 +898,100 @@ struct shhhhhhTests {
         _ = ContentView(storage: readyStorage)
         #expect(readyStorage.hasCompletedOnboarding())
         #expect(readyStorage.loadKeyPair() != nil)
+    }
+
+    // MARK: - Copy Public Key & Contact Sheet Tests
+
+    @Test func testPublicKeyBase64UrlFormat() throws {
+        let keyPair = CryptoEngine.generateKeyPair()
+        let pubKeyString = keyPair.publicKeyBase64Url
+
+        // Must be exactly 43 characters (32 raw bytes Base64URL without padding)
+        #expect(pubKeyString.count == 43)
+
+        // Must strictly use unpadded Base64URL characters [A-Za-z0-9_-]
+        let regex = try Regex("^[A-Za-z0-9_-]{43}$")
+        #expect(pubKeyString.contains(regex))
+
+        // Must not contain padding or standard base64 characters
+        #expect(!pubKeyString.contains("="))
+        #expect(!pubKeyString.contains("+"))
+        #expect(!pubKeyString.contains("/"))
+
+        // Must decode to valid 32-byte raw public key
+        let decoded = try #require(CryptoEngine.base64UrlDecode(pubKeyString))
+        #expect(decoded.count == 32)
+        #expect(decoded == keyPair.publicKey.rawRepresentation)
+    }
+
+    @MainActor
+    @Test func testCopyPublicKeyCopiesRaw43Characters() throws {
+        let keyPair = CryptoEngine.generateKeyPair()
+        UIPasteboard.general.string = "pre-existing-clipboard-text"
+
+        let copied = copyPublicKeyToClipboard(keyPair)
+        #expect(copied)
+
+        let pasted = UIPasteboard.general.string
+        #expect(pasted == keyPair.publicKeyBase64Url)
+        #expect(pasted?.count == 43)
+
+        // Ensure no preamble, newlines, or template wrappers were copied
+        #expect(pasted == CryptoEngine.base64UrlEncode(keyPair.publicKey.rawRepresentation))
+    }
+
+    @MainActor
+    @Test func testCopyPublicKeyWithNilKeyPair() throws {
+        UIPasteboard.general.string = "sentinel-clipboard-value"
+        let copied = copyPublicKeyToClipboard(nil)
+        #expect(!copied)
+        #expect(UIPasteboard.general.string == "sentinel-clipboard-value")
+    }
+
+    @Test func testMultipleKeyPairsProduceDistinctValid43CharPublicKeys() throws {
+        var observedKeys = Set<String>()
+        for _ in 0..<10 {
+            let kp = CryptoEngine.generateKeyPair()
+            let pubKey = kp.publicKeyBase64Url
+            #expect(pubKey.count == 43)
+            #expect(!observedKeys.contains(pubKey))
+            observedKeys.insert(pubKey)
+
+            let decoded = try #require(CryptoEngine.base64UrlDecode(pubKey))
+            #expect(decoded.count == 32)
+            #expect(decoded == kp.publicKey.rawRepresentation)
+        }
+        #expect(observedKeys.count == 10)
+    }
+
+    @MainActor
+    @Test func testContactSelectionSheetInitialization() throws {
+        let keyPair = CryptoEngine.generateKeyPair()
+        var bannerText: String? = nil
+        let bannerBinding = Binding<String?>(
+            get: { bannerText },
+            set: { bannerText = $0 }
+        )
+
+        var copyCalled = false
+        var dismissCalled = false
+
+        let sheet = ContactSelectionSheet(
+            userKeyPair: keyPair,
+            selectedContact: "Myself (This Device)",
+            bannerText: bannerBinding,
+            onCopyPublicKey: { copyCalled = true },
+            onDismiss: { dismissCalled = true }
+        )
+
+        #expect(sheet.userKeyPair == keyPair)
+        #expect(sheet.selectedContact == "Myself (This Device)")
+
+        sheet.onCopyPublicKey()
+        #expect(copyCalled)
+
+        sheet.onDismiss()
+        #expect(dismissCalled)
     }
 
     // MARK: - Test Helpers

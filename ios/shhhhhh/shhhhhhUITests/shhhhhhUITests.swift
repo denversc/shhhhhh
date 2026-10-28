@@ -263,4 +263,50 @@ final class shhhhhhUITests: XCTestCase {
         XCTAssertTrue(secondApp.buttons["Encrypt"].exists)
         XCTAssertTrue(secondApp.buttons["Decrypt"].exists)
     }
+
+    @MainActor
+    func testCopyMyPublicKeyInContactSheet() throws {
+        let app = launchApp(resetStorage: true)
+
+        let restoreButton = app.buttons["restore_backup_button"]
+        XCTAssertTrue(restoreButton.waitForExistence(timeout: 5.0))
+        restoreButton.tap()
+
+        let textEditor = app.textViews["restore_text_editor"]
+        XCTAssertTrue(textEditor.waitForExistence(timeout: 5.0))
+        textEditor.tap()
+        textEditor.typeText("public-key-copy-test-key")
+
+        let confirmRestoreButton = app.buttons["confirm_restore_button"]
+        confirmRestoreButton.tap()
+
+        // Tap Recipient widget to open Contact Selection sheet
+        let recipientButton = app.buttons["recipient_selector_button"]
+        XCTAssertTrue(recipientButton.waitForExistence(timeout: 5.0))
+        recipientButton.tap()
+
+        // Verify "MY PUBLIC KEY" header and text exists
+        let myPubKeyHeader = app.staticTexts["MY PUBLIC KEY"]
+        XCTAssertTrue(myPubKeyHeader.waitForExistence(timeout: 5.0))
+
+        let pubKeyText = app.staticTexts["my_public_key_text"]
+        XCTAssertTrue(pubKeyText.exists)
+        XCTAssertEqual(pubKeyText.label.count, 43)
+
+        // Verify "Copy My Public Key" button exists and tap it
+        let copyButton = app.buttons["copy_my_public_key_button"]
+        XCTAssertTrue(copyButton.exists)
+        copyButton.tap()
+
+        // Verify transient visual feedback banner appears
+        let copiedBanner = app.staticTexts["Copied public key"]
+        XCTAssertTrue(copiedBanner.waitForExistence(timeout: 3.0))
+
+        // Verify close button dismisses sheet
+        let closeButton = app.buttons["sheet_close_button"]
+        XCTAssertTrue(closeButton.exists)
+        closeButton.tap()
+
+        XCTAssertFalse(myPubKeyHeader.exists)
+    }
 }

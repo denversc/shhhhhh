@@ -269,6 +269,7 @@ struct ContentView: View {
                             .stroke(Color(uiColor: .separator), lineWidth: 1)
                     )
                 }
+                .accessibilityIdentifier("recipient_selector_button")
             }
             .padding(16)
             .navigationTitle("shhhhhh")
@@ -288,20 +289,13 @@ struct ContentView: View {
                 }
             }
             .sheet(isPresented: $showContactSheet) {
-                NavigationStack {
-                    VStack(spacing: 20) {
-                        Text("Contact Selection Sheet (Piece 2)")
-                            .font(.headline)
-                        Text("Selected: \(selectedContact)")
-                            .foregroundColor(.secondary)
-                        Button("Close") {
-                            showContactSheet = false
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                    .navigationTitle("Contacts")
-                    .navigationBarTitleDisplayMode(.inline)
-                }
+                ContactSelectionSheet(
+                    userKeyPair: userKeyPair,
+                    selectedContact: selectedContact,
+                    bannerText: $copiedBannerText,
+                    onCopyPublicKey: handleCopyPublicKey,
+                    onDismiss: { showContactSheet = false }
+                )
             }
             .sheet(isPresented: $showSecretPickerSheet) {
                 SecretPickerSheet(
@@ -455,6 +449,12 @@ struct ContentView: View {
         showCopiedFeedback("Copied full message")
     }
 
+    private func handleCopyPublicKey() {
+        guard let userKeyPair else { return }
+        copyPublicKeyToClipboard(userKeyPair)
+        showCopiedFeedback("Copied public key")
+    }
+
     private func showCopiedFeedback(_ message: String) {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         withAnimation {
@@ -464,6 +464,148 @@ struct ContentView: View {
             withAnimation {
                 if copiedBannerText == message {
                     copiedBannerText = nil
+                }
+            }
+        }
+    }
+}
+
+/// Copies the user's public key (43-character unpadded Base64URL) to the system clipboard.
+@discardableResult
+@MainActor
+public func copyPublicKeyToClipboard(_ keyPair: CryptoKeyPair?) -> Bool {
+    guard let keyPair else { return false }
+    UIPasteboard.general.string = keyPair.publicKeyBase64Url
+    return true
+}
+
+struct ContactSelectionSheet: View {
+    let userKeyPair: CryptoKeyPair?
+    let selectedContact: String
+    @Binding var bannerText: String?
+    let onCopyPublicKey: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    // MY PUBLIC KEY Section
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("MY PUBLIC KEY")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+
+                        if let keyPair = userKeyPair {
+                            Text(keyPair.publicKeyBase64Url)
+                                .font(.system(.subheadline, design: .monospaced))
+                                .foregroundColor(.primary)
+                                .textSelection(.enabled)
+                                .lineLimit(nil)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(12)
+                                .background(Color(uiColor: .secondarySystemBackground))
+                                .cornerRadius(10)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(Color(uiColor: .separator), lineWidth: 1)
+                                )
+                                .accessibilityIdentifier("my_public_key_text")
+                        } else {
+                            Text("No key pair available")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(12)
+                                .background(Color(uiColor: .secondarySystemBackground))
+                                .cornerRadius(10)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(Color(uiColor: .separator), lineWidth: 1)
+                                )
+                        }
+
+                        Button(action: onCopyPublicKey) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "doc.on.doc")
+                                Text("Copy My Public Key")
+                                    .fontWeight(.semibold)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                        }
+                        .accessibilityIdentifier("copy_my_public_key_button")
+                    }
+
+                    Divider()
+
+                    // CONTACTS Section (Retaining existing structure for subsequent contact selection)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("CONTACTS")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+
+                        HStack {
+                            Text("Selected: \(selectedContact)")
+                                .font(.body)
+                                .fontWeight(.medium)
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Image(systemName: "checkmark")
+                                .foregroundColor(.blue)
+                        }
+                        .padding(14)
+                        .background(Color(uiColor: .secondarySystemBackground))
+                        .cornerRadius(10)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color(uiColor: .separator), lineWidth: 1)
+                        )
+
+                        Text("Contact Selection Sheet (Piece 2)")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+
+                        Button("Close") {
+                            onDismiss()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .frame(maxWidth: .infinity)
+                        .accessibilityIdentifier("sheet_close_button")
+                    }
+                }
+                .padding(20)
+            }
+            .navigationTitle("Contacts")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        onDismiss()
+                    }
+                    .accessibilityIdentifier("nav_close_button")
+                }
+            }
+            .overlay(alignment: .top) {
+                if let banner = bannerText {
+                    Text(banner)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(20)
+                        .shadow(radius: 4)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .padding(.top, 8)
+                        .accessibilityIdentifier("sheet_copied_banner")
                 }
             }
         }
