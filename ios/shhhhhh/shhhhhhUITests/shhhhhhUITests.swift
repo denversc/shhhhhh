@@ -397,4 +397,70 @@ final class shhhhhhUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Myself (This Device)"].waitForExistence(timeout: 5.0))
     }
+
+    @MainActor
+    func testPasteButtonFunctionalityAndReversion() throws {
+        let app = launchApp(resetStorage: true)
+
+        let restoreButton = app.buttons["restore_backup_button"]
+        XCTAssertTrue(restoreButton.waitForExistence(timeout: 5.0))
+        restoreButton.tap()
+
+        let restoreEditor = app.textViews["restore_text_editor"]
+        XCTAssertTrue(restoreEditor.waitForExistence(timeout: 5.0))
+        restoreEditor.tap()
+        restoreEditor.typeText("paste-button-ui-test-key")
+
+        let confirmRestoreButton = app.buttons["confirm_restore_button"]
+        confirmRestoreButton.tap()
+
+        let clearButton = app.buttons["Clear"]
+        let pasteButton = app.buttons["Paste"]
+        let copyButton = app.buttons["Copy"]
+        let mainEditor = app.textViews["main_text_editor"]
+        XCTAssertTrue(clearButton.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(pasteButton.exists)
+        XCTAssertTrue(copyButton.exists)
+        XCTAssertTrue(mainEditor.exists)
+
+        // 1. Initially (with empty clipboard), tapping Paste shows transient feedback
+        pasteButton.tap()
+        let emptyBanner = app.staticTexts["Clipboard is empty"]
+        XCTAssertTrue(emptyBanner.waitForExistence(timeout: 3.0))
+
+        // 2. Type text and copy to populate the in-app clipboard
+        mainEditor.tap()
+        mainEditor.typeText("Hello")
+        copyButton.tap()
+        let copiedBanner = app.staticTexts["Copied full text"]
+        XCTAssertTrue(copiedBanner.waitForExistence(timeout: 3.0))
+
+        // 3. Clear the editor
+        clearButton.tap()
+        let clearedValue = (mainEditor.value as? String) ?? ""
+        XCTAssertTrue(clearedValue.isEmpty)
+
+        // 4. Paste when editor was cleared/unfocused inserts clipboard contents
+        pasteButton.tap()
+        XCTAssertEqual(mainEditor.value as? String, "Hello")
+
+        // 5. Pasting again appends to existing text without clearing
+        pasteButton.tap()
+        XCTAssertEqual(mainEditor.value as? String, "HelloHello")
+
+        // 6. Encrypt to enter [Copy Ciphertext] state
+        let encryptButton = app.buttons["Encrypt"]
+        encryptButton.tap()
+        let copyCiphertextButton = app.buttons["Copy Ciphertext"]
+        XCTAssertTrue(copyCiphertextButton.waitForExistence(timeout: 5.0))
+
+        // 7. Pasting reverts [Copy Ciphertext] back to [Encrypt]
+        pasteButton.tap()
+        XCTAssertTrue(encryptButton.waitForExistence(timeout: 3.0))
+
+        // 8. Clear button resets text
+        clearButton.tap()
+        let finalValue = (mainEditor.value as? String) ?? ""
+        XCTAssertTrue(finalValue.isEmpty)
+    }
 }

@@ -1115,6 +1115,116 @@ struct shhhhhhTests {
         #expect(decrypted == secret)
     }
 
+    // MARK: - Text Insertion and Paste Logic Tests
+
+    @Test func testApplyTextInsertionUnfocusedAppendsToEnd() throws {
+        // Empty text
+        let r1 = applyTextInsertion(
+            currentText: "",
+            insertedText: "Hello",
+            selectedRange: NSRange(location: 0, length: 0),
+            isFocused: false
+        )
+        #expect(r1.newText == "Hello")
+        #expect(r1.newRange == NSRange(location: 5, length: 0))
+
+        // Non-empty text with non-zero selectedRange (should ignore selectedRange when unfocused)
+        let r2 = applyTextInsertion(
+            currentText: "Prefix ",
+            insertedText: "Pasted",
+            selectedRange: NSRange(location: 0, length: 2),
+            isFocused: false
+        )
+        #expect(r2.newText == "Prefix Pasted")
+        #expect(r2.newRange == NSRange(location: 13, length: 0))
+    }
+
+    @Test func testApplyTextInsertionFocusedCollapsedCursor() throws {
+        // Cursor at beginning (0, 0)
+        let r1 = applyTextInsertion(
+            currentText: "World",
+            insertedText: "Hello ",
+            selectedRange: NSRange(location: 0, length: 0),
+            isFocused: true
+        )
+        #expect(r1.newText == "Hello World")
+        #expect(r1.newRange == NSRange(location: 6, length: 0))
+
+        // Cursor in middle
+        let r2 = applyTextInsertion(
+            currentText: "Hello World",
+            insertedText: "beautiful ",
+            selectedRange: NSRange(location: 6, length: 0),
+            isFocused: true
+        )
+        #expect(r2.newText == "Hello beautiful World")
+        #expect(r2.newRange == NSRange(location: 16, length: 0))
+
+        // Cursor at end
+        let r3 = applyTextInsertion(
+            currentText: "Hello World",
+            insertedText: "!",
+            selectedRange: NSRange(location: 11, length: 0),
+            isFocused: true
+        )
+        #expect(r3.newText == "Hello World!")
+        #expect(r3.newRange == NSRange(location: 12, length: 0))
+    }
+
+    @Test func testApplyTextInsertionFocusedSelectionReplacement() throws {
+        // Replace middle range
+        let r1 = applyTextInsertion(
+            currentText: "Hello terrible World",
+            insertedText: "beautiful",
+            selectedRange: NSRange(location: 6, length: 8),
+            isFocused: true
+        )
+        #expect(r1.newText == "Hello beautiful World")
+        #expect(r1.newRange == NSRange(location: 15, length: 0))
+
+        // Replace entire text
+        let r2 = applyTextInsertion(
+            currentText: "OldContent",
+            insertedText: "NewContent",
+            selectedRange: NSRange(location: 0, length: 10),
+            isFocused: true
+        )
+        #expect(r2.newText == "NewContent")
+        #expect(r2.newRange == NSRange(location: 10, length: 0))
+    }
+
+    @Test func testApplyTextInsertionEdgeCases() throws {
+        // Out-of-bounds location clamped to end
+        let r1 = applyTextInsertion(
+            currentText: "Short",
+            insertedText: "End",
+            selectedRange: NSRange(location: 100, length: 5),
+            isFocused: true
+        )
+        #expect(r1.newText == "ShortEnd")
+        #expect(r1.newRange == NSRange(location: 8, length: 0))
+
+        // NSNotFound location falls back to appending
+        let r2 = applyTextInsertion(
+            currentText: "Safe",
+            insertedText: "Mode",
+            selectedRange: NSRange(location: NSNotFound, length: 0),
+            isFocused: true
+        )
+        #expect(r2.newText == "SafeMode")
+        #expect(r2.newRange == NSRange(location: 8, length: 0))
+
+        // Inserting empty string leaves text unchanged
+        let r3 = applyTextInsertion(
+            currentText: "KeepMe",
+            insertedText: "",
+            selectedRange: NSRange(location: 4, length: 0),
+            isFocused: true
+        )
+        #expect(r3.newText == "KeepMe")
+        #expect(r3.newRange == NSRange(location: 4, length: 0))
+    }
+
     // MARK: - Test Helpers
 
     private func hexToData(_ hex: String) -> Data {
