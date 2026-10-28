@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Material 3 dark theme surface and background colors -->
+    <color name="surface">#FF1C1B1F</color>
+    <color name="background">#FF1C1B1F</color>
+    <color name="window_background">#FF1C1B1F</color>
+</resources>
