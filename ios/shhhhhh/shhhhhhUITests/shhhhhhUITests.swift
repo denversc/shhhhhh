@@ -14,9 +14,18 @@ final class shhhhhhUITests: XCTestCase {
     }
 
     @MainActor
-    func testOnboardingUIElementsPresent() throws {
+    private func launchApp(resetStorage: Bool = true) -> XCUIApplication {
         let app = XCUIApplication()
+        if resetStorage {
+            app.launchArguments = ["-reset-storage"]
+        }
         app.launch()
+        return app
+    }
+
+    @MainActor
+    func testOnboardingUIElementsPresent() throws {
+        let app = launchApp()
 
         XCTAssertTrue(app.staticTexts["shhhhhh"].exists)
         XCTAssertTrue(app.staticTexts["Welcome to shhhhhh"].exists)
@@ -37,8 +46,7 @@ final class shhhhhhUITests: XCTestCase {
 
     @MainActor
     func testRestoreFromBackupValidationAndFlow() throws {
-        let app = XCUIApplication()
-        app.launch()
+        let app = launchApp()
 
         let restoreButton = app.buttons["restore_backup_button"]
         XCTAssertTrue(restoreButton.waitForExistence(timeout: 5.0))
@@ -114,8 +122,7 @@ final class shhhhhhUITests: XCTestCase {
 
     @MainActor
     func testMultiSecretSelectionSheetFlow() throws {
-        let app = XCUIApplication()
-        app.launch()
+        let app = launchApp()
 
         // Restore known deterministic backup key
         let restoreButton = app.buttons["restore_backup_button"]
@@ -191,8 +198,7 @@ final class shhhhhhUITests: XCTestCase {
 
     @MainActor
     func testEntropyCollectionAndKeyGenerationFlow() throws {
-        let app = XCUIApplication()
-        app.launch()
+        let app = launchApp()
 
         let canvas = app.otherElements["entropy_canvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 5.0))
@@ -227,5 +233,34 @@ final class shhhhhhUITests: XCTestCase {
         XCTAssertTrue(recipientLabel.waitForExistence(timeout: 5.0))
         XCTAssertTrue(app.buttons["Encrypt"].exists)
         XCTAssertTrue(app.buttons["Decrypt"].exists)
+    }
+
+    @MainActor
+    func testColdStartRestorationIntoMainScreen() throws {
+        let app = launchApp(resetStorage: true)
+
+        let restoreButton = app.buttons["restore_backup_button"]
+        XCTAssertTrue(restoreButton.waitForExistence(timeout: 5.0))
+        restoreButton.tap()
+
+        let textEditor = app.textViews["restore_text_editor"]
+        XCTAssertTrue(textEditor.waitForExistence(timeout: 5.0))
+        textEditor.tap()
+        textEditor.typeText("cold-start-persistence-test-key")
+
+        let confirmRestoreButton = app.buttons["confirm_restore_button"]
+        confirmRestoreButton.tap()
+
+        let recipientLabel = app.staticTexts["Recipient"]
+        XCTAssertTrue(recipientLabel.waitForExistence(timeout: 5.0))
+
+        // Cold restart: terminate app and relaunch without -reset-storage
+        app.terminate()
+        let secondApp = launchApp(resetStorage: false)
+
+        // Verify state is restored directly into MainScreen
+        XCTAssertTrue(secondApp.staticTexts["Recipient"].waitForExistence(timeout: 5.0))
+        XCTAssertTrue(secondApp.buttons["Encrypt"].exists)
+        XCTAssertTrue(secondApp.buttons["Decrypt"].exists)
     }
 }

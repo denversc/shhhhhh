@@ -491,6 +491,300 @@ struct shhhhhhTests {
         #expect(bg != nil)
     }
 
+    // MARK: - ContactRecord & Serialization Tests
+
+    @Test func testContactRecordInitializationAndDefaults() throws {
+        let name = "Alice"
+        let pubKey = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG"
+        let record = ContactRecord(name: name, publicKeyBase64Url: pubKey)
+
+        #expect(!record.id.isEmpty)
+        #expect(record.name == name)
+        #expect(record.publicKeyBase64Url == pubKey)
+        #expect(record.createdAt > 0)
+    }
+
+    @Test func testContactRecordSerializationAndDeserializationSpecialCharacters() throws {
+        let contacts = [
+            ContactRecord(
+                id: "id-1",
+                name: "Alice 🔐 \"The Cryptographer\" \\ & ,",
+                publicKeyBase64Url: "pubKey1234567890123456789012345678901234567",
+                createdAt: 1000
+            ),
+            ContactRecord(
+                id: "id-2",
+                name: "Bob 🚀 <Party> \n Newline\tTab",
+                publicKeyBase64Url: "pubKeySecond12345678901234567890123456789012",
+                createdAt: 2000
+            )
+        ]
+
+        let json = try ContactRecord.serialize(contacts)
+        #expect(json.contains("Alice 🔐"))
+        #expect(json.contains("Bob 🚀"))
+
+        let deserialized = try ContactRecord.deserialize(json)
+        #expect(deserialized.count == 2)
+        #expect(deserialized[0] == contacts[0])
+        #expect(deserialized[1] == contacts[1])
+    }
+
+    @Test func testContactRecordDeserializationCorruptedDataThrows() throws {
+        let corruptedJson = "{ not valid json }"
+        #expect(throws: DecodingError.self) {
+            try ContactRecord.deserialize(corruptedJson)
+        }
+
+        #expect(try ContactRecord.deserialize("[]").isEmpty)
+    }
+
+    // MARK: - InMemoryAppStorage Tests
+
+    @Test func testInMemoryAppStorageKeySavingLoadingClearing() throws {
+        let storage = InMemoryAppStorage()
+        #expect(storage.loadKeyPair() == nil)
+
+        let keyPair = CryptoEngine.generateKeyPair()
+        try storage.saveKeyPair(keyPair)
+
+        let loaded = storage.loadKeyPair()
+        #expect(loaded != nil)
+        #expect(loaded?.publicKey.rawRepresentation == keyPair.publicKey.rawRepresentation)
+        #expect(loaded?.privateKey.rawRepresentation == keyPair.privateKey.rawRepresentation)
+
+        storage.clearKeyPair()
+        #expect(storage.loadKeyPair() == nil)
+    }
+
+    @Test func testInMemoryAppStorageOnboardingTransitions() {
+        let storage = InMemoryAppStorage()
+        #expect(!storage.hasCompletedOnboarding())
+
+        storage.setCompletedOnboarding(true)
+        #expect(storage.hasCompletedOnboarding())
+
+        storage.setCompletedOnboarding(false)
+        #expect(!storage.hasCompletedOnboarding())
+    }
+
+    @Test func testInMemoryAppStorageContactCRUD() {
+        let storage = InMemoryAppStorage()
+        #expect(storage.getContacts().isEmpty)
+
+        let c1 = ContactRecord(id: "1", name: "Alice", publicKeyBase64Url: "key1", createdAt: 200)
+        let c2 = ContactRecord(id: "2", name: "Bob", publicKeyBase64Url: "key2", createdAt: 100)
+
+        storage.saveContact(c1)
+        storage.saveContact(c2)
+
+        // getContacts returns sorted by createdAt ascending
+        let contacts = storage.getContacts()
+        #expect(contacts.count == 2)
+        #expect(contacts[0].id == "2") // createdAt 100
+        #expect(contacts[1].id == "1") // createdAt 200
+
+        // Update contact 1
+        let updatedC1 = ContactRecord(id: "1", name: "Alice Updated", publicKeyBase64Url: "key1_updated", createdAt: 200)
+        storage.saveContact(updatedC1)
+        let contactsAfterUpdate = storage.getContacts()
+        #expect(contactsAfterUpdate.count == 2)
+        #expect(contactsAfterUpdate[1].name == "Alice Updated")
+        #expect(contactsAfterUpdate[1].publicKeyBase64Url == "key1_updated")
+
+        // Delete contact 2
+        storage.deleteContact(id: "2")
+        let contactsAfterDelete = storage.getContacts()
+        #expect(contactsAfterDelete.count == 1)
+        #expect(contactsAfterDelete[0].id == "1")
+
+        // Delete nonexistent contact does not crash
+        storage.deleteContact(id: "999")
+        #expect(storage.getContacts().count == 1)
+    }
+
+    @Test func testInMemoryAppStorageThemeAndClearAll() throws {
+        let storage = InMemoryAppStorage()
+        #expect(storage.getTheme() == nil)
+
+        storage.setTheme("dark")
+        #expect(storage.getTheme() == "dark")
+
+        let keyPair = CryptoEngine.generateKeyPair()
+        try storage.saveKeyPair(keyPair)
+        storage.setCompletedOnboarding(true)
+        storage.saveContact(ContactRecord(id: "c1", name: "Charlie", publicKeyBase64Url: "k", createdAt: 10))
+
+        storage.clearAll()
+        #expect(storage.loadKeyPair() == nil)
+        #expect(!storage.hasCompletedOnboarding())
+        #expect(storage.getContacts().isEmpty)
+        #expect(storage.getTheme() == nil)
+    }
+
+    // MARK: - KeychainHelper Tests
+
+    @Test func testKeychainHelperCrud() {
+        let testService = "prefix924.shhhhhh.test.\(UUID().uuidString)"
+        let keychain = KeychainHelper(service: testService)
+        defer { keychain.deleteAll() }
+
+        let account = "test_account"
+        let data = "SensitiveData123".data(using: .utf8)!
+
+        #expect(keychain.read(forAccount: account) == nil)
+
+        // Save
+        let saved = keychain.save(data: data, forAccount: account)
+        #expect(saved)
+        #expect(keychain.read(forAccount: account) == data)
+
+        // Update (upsert)
+        let updatedData = "NewSensitiveData456".data(using: .utf8)!
+        let updated = keychain.save(data: updatedData, forAccount: account)
+        #expect(updated)
+        #expect(keychain.read(forAccount: account) == updatedData)
+
+        // Delete
+        let deleted = keychain.delete(forAccount: account)
+        #expect(deleted)
+        #expect(keychain.read(forAccount: account) == nil)
+
+        // Deleting already deleted item returns true
+        #expect(keychain.delete(forAccount: account))
+    }
+
+    // MARK: - KeychainAppStorage Tests
+
+    @Test func testKeychainAppStorageKeySavingLoadingClearing() throws {
+        let testService = "prefix924.shhhhhh.test.\(UUID().uuidString)"
+        let keychain = KeychainHelper(service: testService)
+        let suiteName = "test.suite.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            keychain.deleteAll()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let storage = KeychainAppStorage(keychain: keychain, userDefaults: defaults)
+        #expect(storage.loadKeyPair() == nil)
+
+        let keyPair = CryptoEngine.generateKeyPair()
+        try storage.saveKeyPair(keyPair)
+
+        let loaded = storage.loadKeyPair()
+        #expect(loaded != nil)
+        #expect(loaded?.publicKey.rawRepresentation == keyPair.publicKey.rawRepresentation)
+        #expect(loaded?.privateKey.rawRepresentation == keyPair.privateKey.rawRepresentation)
+
+        storage.clearKeyPair()
+        #expect(storage.loadKeyPair() == nil)
+    }
+
+    @Test func testKeychainAppStorageOnboardingAndThemeTransitions() {
+        let testService = "prefix924.shhhhhh.test.\(UUID().uuidString)"
+        let keychain = KeychainHelper(service: testService)
+        let suiteName = "test.suite.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            keychain.deleteAll()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let storage = KeychainAppStorage(keychain: keychain, userDefaults: defaults)
+        #expect(!storage.hasCompletedOnboarding())
+        storage.setCompletedOnboarding(true)
+        #expect(storage.hasCompletedOnboarding())
+
+        #expect(storage.getTheme() == nil)
+        storage.setTheme("light")
+        #expect(storage.getTheme() == "light")
+    }
+
+    @Test func testKeychainAppStorageContactCRUD() {
+        let testService = "prefix924.shhhhhh.test.\(UUID().uuidString)"
+        let keychain = KeychainHelper(service: testService)
+        let suiteName = "test.suite.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            keychain.deleteAll()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let storage = KeychainAppStorage(keychain: keychain, userDefaults: defaults)
+        #expect(storage.getContacts().isEmpty)
+
+        let c1 = ContactRecord(id: "c1", name: "Alice", publicKeyBase64Url: "key1", createdAt: 500)
+        let c2 = ContactRecord(id: "c2", name: "Bob", publicKeyBase64Url: "key2", createdAt: 100)
+
+        storage.saveContact(c1)
+        storage.saveContact(c2)
+
+        let retrieved = storage.getContacts()
+        #expect(retrieved.count == 2)
+        #expect(retrieved[0].id == "c2") // createdAt 100
+        #expect(retrieved[1].id == "c1") // createdAt 500
+
+        // Update
+        let updatedC2 = ContactRecord(id: "c2", name: "Bob New", publicKeyBase64Url: "key2_new", createdAt: 100)
+        storage.saveContact(updatedC2)
+        let retrievedUpdated = storage.getContacts()
+        #expect(retrievedUpdated.count == 2)
+        #expect(retrievedUpdated[0].name == "Bob New")
+
+        // Delete
+        storage.deleteContact(id: "c1")
+        let afterDelete = storage.getContacts()
+        #expect(afterDelete.count == 1)
+        #expect(afterDelete[0].id == "c2")
+
+        storage.clearAll()
+        #expect(storage.getContacts().isEmpty)
+    }
+
+    @Test func testCorruptedDataRecovery() throws {
+        let testService = "prefix924.shhhhhh.test.\(UUID().uuidString)"
+        let keychain = KeychainHelper(service: testService)
+        let suiteName = "test.suite.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            keychain.deleteAll()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let storage = KeychainAppStorage(keychain: keychain, userDefaults: defaults)
+
+        // 1. Corrupted private key in keychain (invalid length: 16 bytes instead of 32)
+        keychain.save(data: Data(repeating: 0xaa, count: 16), forAccount: KeychainAppStorage.accountPrivateKey)
+        defaults.set("dummy_pub_key", forKey: KeychainAppStorage.keyPublicKey)
+        #expect(storage.loadKeyPair() == nil)
+
+        // 2. Corrupted contacts JSON in UserDefaults
+        defaults.set("{ corrupted JSON !@#$ }", forKey: KeychainAppStorage.keyContacts)
+        #expect(storage.getContacts().isEmpty)
+
+        // 3. Saving a valid contact recovers from corrupted JSON
+        let validContact = ContactRecord(id: "recov", name: "Recovered", publicKeyBase64Url: "pk123", createdAt: 1)
+        storage.saveContact(validContact)
+        let recovered = storage.getContacts()
+        #expect(recovered.count == 1)
+        #expect(recovered[0].name == "Recovered")
+    }
+
+    @Test func testContentViewInitializationFromStorage() throws {
+        let emptyStorage = InMemoryAppStorage()
+        _ = ContentView(storage: emptyStorage)
+
+        let readyStorage = InMemoryAppStorage()
+        let kp = CryptoEngine.generateKeyPair()
+        try readyStorage.saveKeyPair(kp)
+        readyStorage.setCompletedOnboarding(true)
+
+        _ = ContentView(storage: readyStorage)
+        #expect(readyStorage.hasCompletedOnboarding())
+        #expect(readyStorage.loadKeyPair() != nil)
+    }
+
     // MARK: - Test Helpers
 
     private func hexToData(_ hex: String) -> Data {

@@ -35,6 +35,7 @@ enum DecryptError: String, Identifiable {
 }
 
 struct ContentView: View {
+    let storage: AppStorage
     @State private var userKeyPair: CryptoKeyPair? = nil
     @State private var hasCompletedOnboarding: Bool = false
     @State private var text: String = ""
@@ -52,15 +53,42 @@ struct ContentView: View {
     @State private var isDecryptPressed: Bool = false
     @State private var longPressTriggered: Bool = false
 
-    init(userKeyPair: CryptoKeyPair? = nil, hasCompletedOnboarding: Bool = false) {
-        _userKeyPair = State(initialValue: userKeyPair)
-        _hasCompletedOnboarding = State(initialValue: hasCompletedOnboarding)
+    init(
+        storage: AppStorage = KeychainAppStorage.shared,
+        userKeyPair: CryptoKeyPair? = nil,
+        hasCompletedOnboarding: Bool? = nil
+    ) {
+        self.storage = storage
+
+        if let explicitKeyPair = userKeyPair, let explicitCompleted = hasCompletedOnboarding {
+            _userKeyPair = State(initialValue: explicitKeyPair)
+            _hasCompletedOnboarding = State(initialValue: explicitCompleted)
+        } else if let explicitKeyPair = userKeyPair {
+            _userKeyPair = State(initialValue: explicitKeyPair)
+            _hasCompletedOnboarding = State(initialValue: true)
+        } else if let explicitCompleted = hasCompletedOnboarding {
+            let loaded = storage.loadKeyPair()
+            _userKeyPair = State(initialValue: explicitCompleted ? loaded : nil)
+            _hasCompletedOnboarding = State(initialValue: explicitCompleted)
+        } else {
+            let loaded = storage.loadKeyPair()
+            let completed = storage.hasCompletedOnboarding()
+            if completed && loaded != nil {
+                _userKeyPair = State(initialValue: loaded)
+                _hasCompletedOnboarding = State(initialValue: true)
+            } else {
+                _userKeyPair = State(initialValue: nil)
+                _hasCompletedOnboarding = State(initialValue: false)
+            }
+        }
     }
 
     var body: some View {
         Group {
             if !hasCompletedOnboarding || userKeyPair == nil {
                 OnboardingView(onComplete: { keyPair in
+                    try? storage.saveKeyPair(keyPair)
+                    storage.setCompletedOnboarding(true)
                     withAnimation(.easeInOut(duration: 0.35)) {
                         self.userKeyPair = keyPair
                         hasCompletedOnboarding = true
@@ -432,7 +460,7 @@ struct ContentView: View {
         withAnimation {
             copiedBannerText = message
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
             withAnimation {
                 if copiedBannerText == message {
                     copiedBannerText = nil
