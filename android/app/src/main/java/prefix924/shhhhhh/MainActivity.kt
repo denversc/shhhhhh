@@ -103,7 +103,7 @@ enum class DecryptButtonState {
 
 enum class DecryptError(val message: String) {
     NO_CANDIDATES(
-        "No Base64URL ciphertext string of 80 or more characters was found in the text box."
+        "No Base64URL ciphertext string of 166 or more characters was found in the text box."
     ),
     AUTH_FAILED(
         "Ciphertext was found, but it could not be decrypted with this device's private key. It may have been intended for a different recipient or corrupted."

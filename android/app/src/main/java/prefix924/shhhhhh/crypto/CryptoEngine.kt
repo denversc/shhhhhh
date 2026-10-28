@@ -45,7 +45,7 @@ data class CryptoKeyPair(
  */
 sealed interface DecryptResult {
     /**
-     * No Base64URL string of 80 or more characters was found in the input text.
+     * No Base64URL string of 166 or more characters was found in the input text.
      */
     data object NoCandidates : DecryptResult
 
@@ -76,27 +76,39 @@ sealed interface DecryptResult {
 }
 
 /**
- * Native sealed box cryptography engine for shhhhhh.
+ * Native sealed box cryptography engine for shhhhhh v2 (Floored PADME).
  *
  * Implements:
+ * - Clean-break protocol version byte: 0x02
  * - X25519 Diffie-Hellman key agreement (RFC 7748)
- * - HKDF-SHA256 key derivation (RFC 5869)
+ * - HKDF-SHA256 key derivation (RFC 5869) with domain separator "shhhhhh:sealedbox:v2"
  * - ChaCha20-Poly1305 AEAD authenticated encryption (RFC 8439)
- * - Sealed Box format: ephemeralPublicKey[32] + nonce[12] + ciphertextWithTag[N + 16]
- * - Unpadded Base64URL wire serialization
+ * - Floored PADME length-hiding bucketing algorithm (RFC 9543 with minFloor = 128)
+ * - Length-prefixed inner buffer framing: [2-byte BE uint16 len] + [plaintext] + [CSPRNG padding]
+ * - Sealed Box v2 format:
+ *     0x02 || ephemeralPublicKey[32] || nonce[12] || ciphertext[B] || poly1305Tag[16]
+ * - Additional Authenticated Data (AAD):
+ *     0x02 || ephemeralPublicKey[32] || nonce[12] (45 bytes)
+ * - Fixed overhead: 61 bytes (45-byte header + 16-byte tag)
+ * - Minimum wire payload: 189 bytes (128-byte inner buffer + 61 bytes overhead) -> 252 unpadded Base64URL chars
+ * - Candidate scanning regex: [A-Za-z0-9_-]{166,} with fast rejection on byte 0 != 0x02
  *
  * Uses portable ASN.1 PKCS#8 and X.509 encodings for 100% cross-platform compatibility
  * between Android Conscrypt and JVM SunEC providers.
  */
 object CryptoEngine {
+    const val PROTOCOL_VERSION: Byte = 0x02
     const val KEY_SIZE_BYTES = 32
     const val NONCE_SIZE_BYTES = 12
     const val TAG_SIZE_BYTES = 16
-    const val OVERHEAD_BYTES = KEY_SIZE_BYTES + NONCE_SIZE_BYTES + TAG_SIZE_BYTES // 60 bytes
-    const val MIN_CIPHERTEXT_LENGTH_CHARS = 80 // 60 bytes in unpadded Base64URL
+    const val HEADER_SIZE_BYTES = 1 + KEY_SIZE_BYTES + NONCE_SIZE_BYTES // 45 bytes
+    const val FIXED_OVERHEAD_BYTES = HEADER_SIZE_BYTES + TAG_SIZE_BYTES  // 61 bytes
+    const val OVERHEAD_BYTES = FIXED_OVERHEAD_BYTES // 61 bytes
+    const val DEFAULT_MIN_FLOOR = 128
+    const val MIN_CIPHERTEXT_LENGTH_CHARS = 166
 
-    val DOMAIN_SEPARATOR: ByteArray = "shhhhhh:sealedbox:v1".toByteArray(Charsets.UTF_8)
-    val CANDIDATE_REGEX: Regex = Regex("[A-Za-z0-9_-]{80,}")
+    val DOMAIN_SEPARATOR: ByteArray = "shhhhhh:sealedbox:v2".toByteArray(Charsets.UTF_8)
+    val CANDIDATE_REGEX: Regex = Regex("[A-Za-z0-9_-]{166,}")
 
     // ASN.1 PKCS#8 prefix for X25519 PrivateKeyInfo (RFC 8410 OID 1.3.101.110)
     // 30 2e 02 01 00 30 05 06 03 2b 65 6e 04 22 04 20 followed by 32 raw private key bytes
@@ -273,29 +285,111 @@ object CryptoEngine {
     }
 
     /**
-     * Encrypts binary plaintext using Sealed Box format.
+     * Floored PADME length-hiding bucketing algorithm (RFC 9543 with Minimum Floor).
      *
-     * @param plaintext Raw bytes to encrypt (can be empty).
+     * Computes the target inner buffer size for a given unpadded framed length (N + 2).
+     *
+     * @param unpaddedLength Unpadded framed length (|P| + 2).
+     * @param minFloor Minimum inner buffer size floor (default 128 bytes).
+     * @return Target padded buffer size in bytes.
+     */
+    fun padLengthPadme(unpaddedLength: Int, minFloor: Int = DEFAULT_MIN_FLOOR): Int {
+        require(unpaddedLength >= 0) { "Length must be non-negative" }
+        val effective = maxOf(unpaddedLength, minFloor)
+        if (effective <= 0) return 0
+        val e = 31 - Integer.numberOfLeadingZeros(effective)
+        val s = 32 - Integer.numberOfLeadingZeros(e)
+        val z = e - s
+        if (z <= 0) return effective
+        val mask = (1 shl z) - 1
+        val padded = (effective + mask) and mask.inv()
+        return maxOf(padded, minFloor)
+    }
+
+    /**
+     * Encodes plaintext into a length-prefixed framed inner buffer with CSPRNG random padding.
+     *
+     * Inner buffer format:
+     * - Bytes 0..1: Big-Endian uint16 plaintext length N (0 <= N <= 65533)
+     * - Bytes 2..2+N-1: Plaintext bytes
+     * - Bytes 2+N..targetSize-1: CSPRNG random padding bytes
+     *
+     * @param plaintext Raw plaintext bytes.
+     * @param targetSize Target inner buffer size in bytes.
+     * @param secureRandom CSPRNG instance for generating padding bytes.
+     * @return Framed inner buffer byte array of length [targetSize].
+     */
+    fun encodeFramedPayload(plaintext: ByteArray, targetSize: Int, secureRandom: SecureRandom): ByteArray {
+        val pLen = plaintext.size
+        require(pLen <= 65533) { "Plaintext exceeds maximum limit of 65533 bytes, got $pLen" }
+        require(targetSize >= pLen + 2) { "Target size ($targetSize) smaller than framed payload (${pLen + 2})" }
+
+        val buffer = ByteArray(targetSize)
+        buffer[0] = ((pLen ushr 8) and 0xFF).toByte()
+        buffer[1] = (pLen and 0xFF).toByte()
+        if (pLen > 0) {
+            System.arraycopy(plaintext, 0, buffer, 2, pLen)
+        }
+        val padCount = targetSize - 2 - pLen
+        if (padCount > 0) {
+            val padBytes = ByteArray(padCount)
+            secureRandom.nextBytes(padBytes)
+            System.arraycopy(padBytes, 0, buffer, 2 + pLen, padCount)
+        }
+        return buffer
+    }
+
+    /**
+     * Decodes a decrypted framed inner buffer, verifying the 2-byte Big-Endian length prefix
+     * and extracting the original plaintext bytes.
+     *
+     * @param decryptedBytes Decrypted inner buffer.
+     * @return Extracted plaintext bytes.
+     * @throws AEADBadTagException If buffer is shorter than 2 bytes or length prefix exceeds bounds.
+     */
+    fun decodeFramedPayload(decryptedBytes: ByteArray): ByteArray {
+        if (decryptedBytes.size < 2) {
+            throw AEADBadTagException("Decrypted buffer too short")
+        }
+        val declaredLen = ((decryptedBytes[0].toInt() and 0xFF) shl 8) or
+                (decryptedBytes[1].toInt() and 0xFF)
+        if (declaredLen < 0 || declaredLen > decryptedBytes.size - 2) {
+            throw AEADBadTagException("Length prefix exceeds buffer bounds")
+        }
+        return decryptedBytes.copyOfRange(2, 2 + declaredLen)
+    }
+
+    /**
+     * Encrypts binary plaintext using Floored PADME Sealed Box v2 format with a custom floor.
+     *
+     * @param plaintext Raw bytes to encrypt (0 <= length <= 65533).
      * @param recipientPublicKey 32-byte raw recipient X25519 public key.
-     * @param secureRandom CSPRNG instance for ephemeral key and nonce generation.
-     * @return Unpadded Base64URL string (at least 80 characters).
+     * @param minFloor Minimum inner buffer floor.
+     * @param secureRandom CSPRNG instance for ephemeral key, nonce, and padding generation.
+     * @return Unpadded Base64URL string.
      */
     fun encrypt(
         plaintext: ByteArray,
         recipientPublicKey: ByteArray,
+        minFloor: Int,
         secureRandom: SecureRandom = SecureRandom()
     ): String {
         require(recipientPublicKey.size == KEY_SIZE_BYTES) {
             "Recipient public key must be $KEY_SIZE_BYTES bytes, got ${recipientPublicKey.size}"
         }
 
-        val ephemeralKeyPair = generateKeyPair(secureRandom)
-        val ephemeralPrivateKey = rawBytesToPrivateKey(ephemeralKeyPair.privateKey)
-        val recipientKey = rawBytesToPublicKey(recipientPublicKey)
+        val unpaddedLen = plaintext.size + 2
+        val targetSize = padLengthPadme(unpaddedLen, minFloor)
+        val innerBuffer = encodeFramedPayload(plaintext, targetSize, secureRandom)
 
+        val ephemeralKeyPair = generateKeyPair(secureRandom)
+        val nonce = ByteArray(NONCE_SIZE_BYTES).also { secureRandom.nextBytes(it) }
+
+        val ephemeralPrivKey = rawBytesToPrivateKey(ephemeralKeyPair.privateKey)
+        val recipientPubKey = rawBytesToPublicKey(recipientPublicKey)
         val ka = KeyAgreement.getInstance("X25519")
-        ka.init(ephemeralPrivateKey)
-        ka.doPhase(recipientKey, true)
+        ka.init(ephemeralPrivKey)
+        ka.doPhase(recipientPubKey, true)
         val sharedSecret = ka.generateSecret()
 
         val derivedKey = hkdfSha256(
@@ -305,40 +399,64 @@ object CryptoEngine {
             length = 32
         )
 
-        val nonce = ByteArray(NONCE_SIZE_BYTES)
-        secureRandom.nextBytes(nonce)
+        val aad = ByteArray(HEADER_SIZE_BYTES)
+        aad[0] = PROTOCOL_VERSION
+        System.arraycopy(ephemeralKeyPair.publicKey, 0, aad, 1, KEY_SIZE_BYTES)
+        System.arraycopy(nonce, 0, aad, 1 + KEY_SIZE_BYTES, NONCE_SIZE_BYTES)
 
         val cipher = Cipher.getInstance("ChaCha20-Poly1305")
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(derivedKey, "ChaCha20"), IvParameterSpec(nonce))
-        val ciphertextWithTag = cipher.doFinal(plaintext)
+        cipher.updateAAD(aad)
+        val ciphertextWithTag = cipher.doFinal(innerBuffer)
 
-        val payload = ByteArray(KEY_SIZE_BYTES + NONCE_SIZE_BYTES + ciphertextWithTag.size)
-        System.arraycopy(ephemeralKeyPair.publicKey, 0, payload, 0, KEY_SIZE_BYTES)
-        System.arraycopy(nonce, 0, payload, KEY_SIZE_BYTES, NONCE_SIZE_BYTES)
-        System.arraycopy(ciphertextWithTag, 0, payload, KEY_SIZE_BYTES + NONCE_SIZE_BYTES, ciphertextWithTag.size)
+        val wirePayload = ByteArray(HEADER_SIZE_BYTES + ciphertextWithTag.size)
+        System.arraycopy(aad, 0, wirePayload, 0, HEADER_SIZE_BYTES)
+        System.arraycopy(ciphertextWithTag, 0, wirePayload, HEADER_SIZE_BYTES, ciphertextWithTag.size)
 
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(payload)
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(wirePayload)
     }
 
     /**
-     * Encrypts UTF-8 string plaintext into unpadded Base64URL sealed box.
+     * Encrypts binary plaintext using Floored PADME Sealed Box v2 format with default minFloor = 128 bytes.
+     *
+     * @param plaintext Raw bytes to encrypt (0 <= length <= 65533).
+     * @param recipientPublicKey 32-byte raw recipient X25519 public key.
+     * @param secureRandom CSPRNG instance for ephemeral key, nonce, and padding generation.
+     * @return Unpadded Base64URL string (at least 252 characters for minFloor = 128).
+     */
+    fun encrypt(
+        plaintext: ByteArray,
+        recipientPublicKey: ByteArray,
+        secureRandom: SecureRandom = SecureRandom()
+    ): String = encrypt(plaintext, recipientPublicKey, minFloor = DEFAULT_MIN_FLOOR, secureRandom = secureRandom)
+
+    /**
+     * Encrypts UTF-8 string plaintext into unpadded Base64URL sealed box v2 with a custom floor.
+     */
+    fun encrypt(
+        plaintext: String,
+        recipientPublicKey: ByteArray,
+        minFloor: Int,
+        secureRandom: SecureRandom = SecureRandom()
+    ): String = encrypt(plaintext.toByteArray(Charsets.UTF_8), recipientPublicKey, minFloor, secureRandom)
+
+    /**
+     * Encrypts UTF-8 string plaintext into unpadded Base64URL sealed box v2 with default minFloor = 128 bytes.
      */
     fun encrypt(
         plaintext: String,
         recipientPublicKey: ByteArray,
         secureRandom: SecureRandom = SecureRandom()
-    ): String {
-        return encrypt(plaintext.toByteArray(Charsets.UTF_8), recipientPublicKey, secureRandom)
-    }
+    ): String = encrypt(plaintext.toByteArray(Charsets.UTF_8), recipientPublicKey, minFloor = DEFAULT_MIN_FLOOR, secureRandom = secureRandom)
 
     /**
-     * Decrypts an unpadded Base64URL sealed box ciphertext.
+     * Decrypts an unpadded Base64URL sealed box v2 ciphertext.
      *
-     * @param sealedBoxBase64 Unpadded Base64URL string of at least 80 characters.
+     * @param sealedBoxBase64 Unpadded Base64URL string of at least 166 characters.
      * @param recipientPrivateKey 32-byte raw recipient X25519 private key scalar.
      * @return Decrypted plaintext bytes.
-     * @throws AEADBadTagException If authentication tag verification fails.
-     * @throws IllegalArgumentException If payload format or sizes are invalid.
+     * @throws AEADBadTagException If authentication tag verification fails or protocol version != 0x02.
+     * @throws IllegalArgumentException If recipient private key size is invalid, base64 is invalid, or payload size < 63 bytes.
      */
     fun decrypt(
         sealedBoxBase64: String,
@@ -348,16 +466,26 @@ object CryptoEngine {
             "Recipient private key must be $KEY_SIZE_BYTES bytes, got ${recipientPrivateKey.size}"
         }
 
-        val payload = Base64.getUrlDecoder().decode(sealedBoxBase64)
-        if (payload.size < OVERHEAD_BYTES) {
+        val payload = try {
+            Base64.getUrlDecoder().decode(sealedBoxBase64)
+        } catch (e: IllegalArgumentException) {
+            throw IllegalArgumentException("Invalid Base64URL string", e)
+        }
+
+        if (payload.size < FIXED_OVERHEAD_BYTES + 2) {
             throw IllegalArgumentException(
-                "Payload size (${payload.size}) is smaller than minimum overhead ($OVERHEAD_BYTES bytes)"
+                "Payload size (${payload.size}) is smaller than minimum overhead (${FIXED_OVERHEAD_BYTES + 2} bytes)"
             )
         }
 
-        val ephemeralPubBytes = payload.copyOfRange(0, KEY_SIZE_BYTES)
-        val nonce = payload.copyOfRange(KEY_SIZE_BYTES, KEY_SIZE_BYTES + NONCE_SIZE_BYTES)
-        val ciphertextWithTag = payload.copyOfRange(KEY_SIZE_BYTES + NONCE_SIZE_BYTES, payload.size)
+        if (payload[0] != PROTOCOL_VERSION) {
+            throw AEADBadTagException("Unsupported or invalid protocol version: ${payload[0]}")
+        }
+
+        val ephemeralPubBytes = payload.copyOfRange(1, 1 + KEY_SIZE_BYTES)
+        val nonce = payload.copyOfRange(1 + KEY_SIZE_BYTES, HEADER_SIZE_BYTES)
+        val ciphertextWithTag = payload.copyOfRange(HEADER_SIZE_BYTES, payload.size)
+        val aad = payload.copyOfRange(0, HEADER_SIZE_BYTES)
 
         val ephemeralKey = rawBytesToPublicKey(ephemeralPubBytes)
         val recipientPriv = rawBytesToPrivateKey(recipientPrivateKey)
@@ -376,7 +504,10 @@ object CryptoEngine {
 
         val cipher = Cipher.getInstance("ChaCha20-Poly1305")
         cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(derivedKey, "ChaCha20"), IvParameterSpec(nonce))
-        return cipher.doFinal(ciphertextWithTag)
+        cipher.updateAAD(aad)
+        val decryptedInner = cipher.doFinal(ciphertextWithTag)
+
+        return decodeFramedPayload(decryptedInner)
     }
 
     /**
@@ -391,7 +522,8 @@ object CryptoEngine {
     }
 
     /**
-     * Scans input text for Base64URL ciphertext candidates (>= 80 chars),
+     * Scans input text for Base64URL ciphertext candidates (>= 166 chars),
+     * performs fast rejection on byte 0 != 0x02 before X25519 key agreement,
      * attempts sealed box decryption for each, and replaces successful candidates in-place.
      *
      * @param inputText Raw text potentially containing ciphertext substrings.
@@ -411,8 +543,19 @@ object CryptoEngine {
         val successfulMatches = mutableListOf<Pair<MatchResult, String>>()
 
         for (match in matches) {
+            val candidateStr = match.value
+            // Fast rejection check before expensive X25519 scalar multiplication
+            val rawToken = try {
+                Base64.getUrlDecoder().decode(candidateStr)
+            } catch (_: Exception) {
+                continue
+            }
+            if (rawToken.size < FIXED_OVERHEAD_BYTES + 2 || rawToken[0] != PROTOCOL_VERSION) {
+                continue
+            }
+
             try {
-                val decrypted = decryptToString(match.value, recipientPrivateKey)
+                val decrypted = decryptToString(candidateStr, recipientPrivateKey)
                 successfulMatches.add(match to decrypted)
                 secrets.add(decrypted)
             } catch (_: Exception) {
