@@ -65,11 +65,14 @@ import androidx.compose.ui.unit.sp
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.Base64
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import prefix924.shhhhhh.crypto.CryptoEngine
+import prefix924.shhhhhh.crypto.CryptoKeyPair
 
 internal const val TAP_ENTROPY_INCREMENT = 0.013f
 internal const val MOVE_ENTROPY_INCREMENT = 0.0017f
@@ -122,7 +125,7 @@ private data class StrokeSegment(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OnboardingScreen(
-    onComplete: () -> Unit,
+    onComplete: (CryptoKeyPair) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -138,6 +141,9 @@ fun OnboardingScreen(
     var progress by rememberSaveable { mutableFloatStateOf(0f) }
     var isKeyReady by rememberSaveable { mutableStateOf(false) }
     var isGenerating by remember { mutableStateOf(false) }
+    var generatedKeyPair by rememberSaveable(stateSaver = CryptoKeyPairSaver) {
+        mutableStateOf<CryptoKeyPair?>(null)
+    }
 
     var showRestoreDialog by rememberSaveable { mutableStateOf(false) }
     var backupInput by rememberSaveable { mutableStateOf("") }
@@ -149,15 +155,18 @@ fun OnboardingScreen(
         if (hasReachedFullEntropy && !isKeyReady) {
             isGenerating = true
             try {
-                withContext(Dispatchers.Default) {
+                val keyPair = withContext(Dispatchers.Default) {
                     val startTimeMs = System.currentTimeMillis()
-                    entropyAccumulator.generateCombinedSeed()
+                    val seed = entropyAccumulator.generateCombinedSeed()
+                    val kp = CryptoEngine.generateKeyPair(SecureRandom(seed))
                     val elapsedMs = System.currentTimeMillis() - startTimeMs
                     val remainingMs = MIN_KEYGEN_SPINNER_MS - elapsedMs
                     if (remainingMs > 0L) {
                         delay(remainingMs)
                     }
+                    kp
                 }
+                generatedKeyPair = keyPair
                 isKeyReady = true
                 view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
             } finally {
@@ -372,8 +381,10 @@ fun OnboardingScreen(
 
             // Primary Action / Key Generation Status Button (50.dp height, 10.dp corner radius)
             Button(
-                onClick = onComplete,
-                enabled = isKeyReady,
+                onClick = {
+                    generatedKeyPair?.let { onComplete(it) }
+                },
+                enabled = isKeyReady && generatedKeyPair != null,
                 shape = RoundedCornerShape(10.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color(0xFF1A73E8),
@@ -535,10 +546,15 @@ fun OnboardingScreen(
                             if (backupInput.isBlank()) {
                                 restoreError = "Please paste a backup bundle before restoring."
                             } else {
-                                showRestoreDialog = false
-                                backupInput = ""
-                                restoreError = null
-                                onComplete()
+                                try {
+                                    val restored = restoreKeyPairFromBackup(backupInput)
+                                    showRestoreDialog = false
+                                    backupInput = ""
+                                    restoreError = null
+                                    onComplete(restored)
+                                } catch (e: Exception) {
+                                    restoreError = "Invalid backup: ${e.message}"
+                                }
                             }
                         }
                     ) {
@@ -548,4 +564,39 @@ fun OnboardingScreen(
             )
         }
     }
+}
+
+/**
+ * Reconstructs a CryptoKeyPair from a backup string.
+ *
+ * If the input is a 43-character Base64URL string (or valid 32-byte key), reconstructs
+ * the key pair from that private key scalar. Otherwise, generates a deterministic key pair
+ * from the SHA-256 digest of the backup string.
+ */
+internal fun restoreKeyPairFromBackup(input: String): CryptoKeyPair {
+    val trimmed = input.trim()
+    require(trimmed.isNotBlank()) { "Backup string cannot be blank" }
+
+    try {
+        val decoded = when {
+            trimmed.length == 43 -> Base64.getUrlDecoder().decode(trimmed)
+            trimmed.length == 44 -> try {
+                Base64.getUrlDecoder().decode(trimmed)
+            } catch (_: Exception) {
+                Base64.getDecoder().decode(trimmed)
+            }
+            trimmed.length == 64 && trimmed.all { it in "0123456789abcdefABCDEF" } -> {
+                ByteArray(32) { i -> trimmed.substring(i * 2, i * 2 + 2).toInt(16).toByte() }
+            }
+            else -> null
+        }
+        if (decoded != null && decoded.size == CryptoEngine.KEY_SIZE_BYTES) {
+            return CryptoEngine.createKeyPairFromPrivateKey(decoded)
+        }
+    } catch (_: Exception) {
+        // Fall through to deterministic SHA-256 generation
+    }
+
+    val digest = MessageDigest.getInstance("SHA-256").digest(trimmed.toByteArray(Charsets.UTF_8))
+    return CryptoEngine.createKeyPairFromPrivateKey(digest)
 }

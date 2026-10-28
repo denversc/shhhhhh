@@ -58,6 +58,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -70,13 +72,12 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.util.Base64
 import kotlinx.coroutines.launch
+import prefix924.shhhhhh.crypto.CryptoEngine
+import prefix924.shhhhhh.crypto.CryptoKeyPair
+import prefix924.shhhhhh.crypto.DecryptResult
 import prefix924.shhhhhh.ui.theme.ShhhhhhTheme
-
-private const val SAMPLE_CIPHERTEXT =
-    "xK89_mZ2Q1pA0-BvL81kLz0P82kL9xK89mZ2Q1pA0-BvL81kLz0P82kL9xK89mZ2Q1pA0-BvL81kLz0P82kL9"
-private const val SAMPLE_PLAINTEXT = "BankPassword123!"
-private val CIPHERTEXT_CANDIDATE_REGEX = Regex("[A-Za-z0-9_-]{80,}")
 
 enum class EncryptButtonState {
     ENCRYPT,
@@ -97,23 +98,53 @@ enum class DecryptError(val message: String) {
     )
 }
 
+internal val CryptoKeyPairSaver: Saver<CryptoKeyPair?, Any> = listSaver(
+    save = { keyPair ->
+        if (keyPair != null) {
+            listOf(
+                Base64.getUrlEncoder().withoutPadding().encodeToString(keyPair.privateKey),
+                Base64.getUrlEncoder().withoutPadding().encodeToString(keyPair.publicKey)
+            )
+        } else {
+            emptyList()
+        }
+    },
+    restore = { list ->
+        if (list.size >= 2) {
+            CryptoKeyPair(
+                privateKey = Base64.getUrlDecoder().decode(list[0]),
+                publicKey = Base64.getUrlDecoder().decode(list[1])
+            )
+        } else {
+            null
+        }
+    }
+)
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             ShhhhhhTheme {
+                var userKeyPair by rememberSaveable(stateSaver = CryptoKeyPairSaver) {
+                    mutableStateOf<CryptoKeyPair?>(null)
+                }
                 var hasCompletedOnboarding by rememberSaveable { mutableStateOf(false) }
 
                 Crossfade(
-                    targetState = hasCompletedOnboarding,
+                    targetState = hasCompletedOnboarding && userKeyPair != null,
                     label = "OnboardingToMainTransition"
                 ) { completed ->
-                    if (completed) {
-                        MainScreen()
+                    val keyPair = userKeyPair
+                    if (completed && keyPair != null) {
+                        MainScreen(userKeyPair = keyPair)
                     } else {
                         OnboardingScreen(
-                            onComplete = { hasCompletedOnboarding = true }
+                            onComplete = { kp ->
+                                userKeyPair = kp
+                                hasCompletedOnboarding = true
+                            }
                         )
                     }
                 }
@@ -124,7 +155,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun MainScreen() {
+fun MainScreen(userKeyPair: CryptoKeyPair) {
     val context = LocalContext.current
     val view = LocalView.current
     val clipboardManager = remember {
@@ -140,6 +171,7 @@ fun MainScreen() {
     var dialogError by remember { mutableStateOf<DecryptError?>(null) }
     var selectedContact by remember { mutableStateOf("Myself (This Device)") }
     var showContactSheet by remember { mutableStateOf(false) }
+    var decryptedSecrets by remember { mutableStateOf<List<String>>(emptyList()) }
 
     fun copyToClipboard(content: String, label: String, message: String) {
         val clip = ClipData.newPlainText(label, content)
@@ -204,6 +236,8 @@ fun MainScreen() {
                             encryptState = EncryptButtonState.ENCRYPT
                             decryptState = DecryptButtonState.DECRYPT
                             overlayError = null
+                            dialogError = null
+                            decryptedSecrets = emptyList()
                         }
                     ) {
                         Icon(
@@ -263,6 +297,7 @@ fun MainScreen() {
                                 }
                                 if (decryptState == DecryptButtonState.COPY_SECRET) {
                                     decryptState = DecryptButtonState.DECRYPT
+                                    decryptedSecrets = emptyList()
                                 }
                             },
                             modifier = Modifier.fillMaxSize(),
@@ -307,10 +342,20 @@ fun MainScreen() {
                         )
                         .clickable {
                             overlayError = null
+                            dialogError = null
                             if (encryptState == EncryptButtonState.ENCRYPT) {
-                                text = SAMPLE_CIPHERTEXT
+                                val recipientPublicKey = when (selectedContact) {
+                                    "Myself (This Device)" -> userKeyPair.publicKey
+                                    else -> userKeyPair.publicKey
+                                }
+                                val ciphertext = CryptoEngine.encrypt(
+                                    plaintext = text,
+                                    recipientPublicKey = recipientPublicKey
+                                )
+                                text = ciphertext
                                 encryptState = EncryptButtonState.COPY
                                 decryptState = DecryptButtonState.DECRYPT
+                                decryptedSecrets = emptyList()
                             } else {
                                 copyToClipboard(text, "shhhhhh_ciphertext", "Copied ciphertext")
                             }
@@ -356,38 +401,36 @@ fun MainScreen() {
                         .combinedClickable(
                             onClick = {
                                 if (decryptState == DecryptButtonState.DECRYPT) {
-                                    val matches = CIPHERTEXT_CANDIDATE_REGEX.findAll(text).toList()
-                                    if (matches.isEmpty()) {
-                                        decryptState = DecryptButtonState.DECRYPT
-                                        encryptState = EncryptButtonState.ENCRYPT
-                                        triggerDecryptError(DecryptError.NO_CANDIDATES)
-                                    } else {
-                                        var anyDecrypted = false
-                                        val replacedText = CIPHERTEXT_CANDIDATE_REGEX.replace(text) { match ->
-                                            if (match.value == SAMPLE_CIPHERTEXT) {
-                                                anyDecrypted = true
-                                                SAMPLE_PLAINTEXT
-                                            } else {
-                                                match.value
-                                            }
+                                    overlayError = null
+                                    dialogError = null
+                                    when (val result = CryptoEngine.decryptTextWithCandidates(
+                                        inputText = text,
+                                        recipientPrivateKey = userKeyPair.privateKey
+                                    )) {
+                                        is DecryptResult.NoCandidates -> {
+                                            decryptState = DecryptButtonState.DECRYPT
+                                            triggerDecryptError(DecryptError.NO_CANDIDATES)
                                         }
-                                        if (anyDecrypted) {
-                                            text = replacedText
+                                        is DecryptResult.AuthFailed -> {
+                                            decryptState = DecryptButtonState.DECRYPT
+                                            triggerDecryptError(DecryptError.AUTH_FAILED)
+                                        }
+                                        is DecryptResult.Success -> {
+                                            text = result.text
+                                            decryptedSecrets = result.secrets
                                             decryptState = DecryptButtonState.COPY_SECRET
                                             encryptState = EncryptButtonState.ENCRYPT
                                             overlayError = null
                                             dialogError = null
-                                        } else {
-                                            decryptState = DecryptButtonState.DECRYPT
-                                            encryptState = EncryptButtonState.ENCRYPT
-                                            triggerDecryptError(DecryptError.AUTH_FAILED)
+                                            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
                                         }
                                     }
                                 } else {
+                                    val secretToCopy = decryptedSecrets.firstOrNull().orEmpty()
                                     copyToClipboard(
-                                        SAMPLE_PLAINTEXT,
+                                        secretToCopy,
                                         "shhhhhh_secret",
-                                        "Copied secret: $SAMPLE_PLAINTEXT"
+                                        "Copied secret: $secretToCopy"
                                     )
                                 }
                             },
