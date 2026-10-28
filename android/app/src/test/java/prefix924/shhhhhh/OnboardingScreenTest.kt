@@ -32,11 +32,13 @@ class OnboardingScreenTest {
 
     @Test
     fun entropyProgressIncrements_matchTapAndScribbleTargets() {
-        // 16 discrete taps reach 100%
-        assertTrue(16 * TAP_ENTROPY_INCREMENT >= 1.0f)
-        assertTrue(15 * TAP_ENTROPY_INCREMENT < 1.0f)
+        // 77-80 discrete taps reach 100%
+        assertTrue(80 * TAP_ENTROPY_INCREMENT >= 1.0f)
+        assertTrue(77 * TAP_ENTROPY_INCREMENT >= 1.0f)
+        assertTrue(76 * TAP_ENTROPY_INCREMENT < 1.0f)
 
-        // ~118 drag samples after initial pointer-down reach 100%
-        assertTrue(TAP_ENTROPY_INCREMENT + 110 * MOVE_ENTROPY_INCREMENT >= 1.0f)
+        // ~580 drag samples after initial pointer-down reach 100%
+        assertTrue(TAP_ENTROPY_INCREMENT + 580 * MOVE_ENTROPY_INCREMENT < 1.0f)
+        assertTrue(TAP_ENTROPY_INCREMENT + 581 * MOVE_ENTROPY_INCREMENT >= 1.0f)
     }
 }

@@ -71,11 +71,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-internal const val TAP_ENTROPY_INCREMENT = 0.065f
-internal const val MOVE_ENTROPY_INCREMENT = 0.0085f
+internal const val TAP_ENTROPY_INCREMENT = 0.013f
+internal const val MOVE_ENTROPY_INCREMENT = 0.0017f
 internal const val MIN_MOVE_DISTANCE_PX = 3f
-private const val MAX_VISUAL_SEGMENTS = 360
-private const val MAX_VISUAL_DOTS = 80
+private const val MAX_VISUAL_SEGMENTS = 1800
+private const val MAX_VISUAL_DOTS = 400
 private const val MIN_KEYGEN_SPINNER_MS = 650L
 
 internal class EntropyAccumulator {
