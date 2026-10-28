@@ -1,16 +1,11 @@
 package prefix924.shhhhhh.crypto
 
-import java.math.BigInteger
 import java.security.KeyFactory
-import java.security.KeyPairGenerator
 import java.security.PrivateKey
 import java.security.PublicKey
 import java.security.SecureRandom
-import java.security.interfaces.XECPrivateKey
-import java.security.interfaces.XECPublicKey
-import java.security.spec.NamedParameterSpec
-import java.security.spec.XECPrivateKeySpec
-import java.security.spec.XECPublicKeySpec
+import java.security.spec.PKCS8EncodedKeySpec
+import java.security.spec.X509EncodedKeySpec
 import java.util.Base64
 import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
@@ -86,6 +81,9 @@ sealed interface DecryptResult {
  * - ChaCha20-Poly1305 AEAD authenticated encryption (RFC 8439)
  * - Sealed Box format: ephemeralPublicKey[32] + nonce[12] + ciphertextWithTag[N + 16]
  * - Unpadded Base64URL wire serialization
+ *
+ * Uses portable ASN.1 PKCS#8 and X.509 encodings for 100% cross-platform compatibility
+ * between Android Conscrypt and JVM SunEC providers.
  */
 object CryptoEngine {
     const val KEY_SIZE_BYTES = 32
@@ -97,25 +95,40 @@ object CryptoEngine {
     val DOMAIN_SEPARATOR: ByteArray = "shhhhhh:sealedbox:v1".toByteArray(Charsets.UTF_8)
     val CANDIDATE_REGEX: Regex = Regex("[A-Za-z0-9_-]{80,}")
 
-    // RFC 7748 Curve25519 base point u = 9
+    // ASN.1 PKCS#8 prefix for X25519 PrivateKeyInfo (RFC 8410 OID 1.3.101.110)
+    // 30 2e 02 01 00 30 05 06 03 2b 65 6e 04 22 04 20 followed by 32 raw private key bytes
+    private val PKCS8_X25519_PREFIX = byteArrayOf(
+        0x30.toByte(), 0x2e.toByte(), 0x02.toByte(), 0x01.toByte(), 0x00.toByte(),
+        0x30.toByte(), 0x05.toByte(), 0x06.toByte(), 0x03.toByte(), 0x2b.toByte(),
+        0x65.toByte(), 0x6e.toByte(), 0x04.toByte(), 0x22.toByte(), 0x04.toByte(),
+        0x20.toByte()
+    )
+
+    // ASN.1 X.509 SubjectPublicKeyInfo prefix for X25519 (RFC 8410 OID 1.3.101.110)
+    // 30 2a 30 05 06 03 2b 65 6e 03 21 00 followed by 32 raw public key bytes
+    private val X509_X25519_PREFIX = byteArrayOf(
+        0x30.toByte(), 0x2a.toByte(), 0x30.toByte(), 0x05.toByte(), 0x06.toByte(),
+        0x03.toByte(), 0x2b.toByte(), 0x65.toByte(), 0x6e.toByte(), 0x03.toByte(),
+        0x21.toByte(), 0x00.toByte()
+    )
+
+    // RFC 7748 Curve25519 base point u = 9 (little-endian 32 bytes: 0x09 followed by 31 zeros)
+    private val BASE_POINT_BYTES = ByteArray(KEY_SIZE_BYTES).apply { this[0] = 9 }
+
     private val BASE_POINT_PUBLIC_KEY: PublicKey by lazy {
-        val u = BigInteger.valueOf(9)
-        val keyFactory = KeyFactory.getInstance("X25519")
-        keyFactory.generatePublic(XECPublicKeySpec(NamedParameterSpec.X25519, u))
+        rawBytesToPublicKey(BASE_POINT_BYTES)
     }
 
     /**
      * Generates a fresh X25519 key pair using the specified CSPRNG.
+     * In RFC 7748, any 32 random bytes form a valid X25519 private key scalar.
+     * The public key is derived via scalar multiplication with base point u = 9.
      */
     fun generateKeyPair(secureRandom: SecureRandom = SecureRandom()): CryptoKeyPair {
-        val kpg = KeyPairGenerator.getInstance("X25519")
-        kpg.initialize(NamedParameterSpec.X25519, secureRandom)
-        val kp = kpg.generateKeyPair()
-        val priv = (kp.private as XECPrivateKey).scalar.orElseThrow {
-            IllegalStateException("X25519 private key scalar not accessible")
-        }
-        val pub = publicKeyToRawBytes(kp.public)
-        return CryptoKeyPair(privateKey = priv, publicKey = pub)
+        val rawPriv = ByteArray(KEY_SIZE_BYTES)
+        secureRandom.nextBytes(rawPriv)
+        val pub = derivePublicKey(rawPriv)
+        return CryptoKeyPair(privateKey = rawPriv, publicKey = pub)
     }
 
     /**
@@ -144,39 +157,51 @@ object CryptoEngine {
     }
 
     /**
-     * Extracts 32 raw little-endian bytes from an XECPublicKey.
+     * Extracts 32 raw little-endian bytes from an X25519 PublicKey.
      */
     fun publicKeyToRawBytes(publicKey: PublicKey): ByteArray {
-        val xecPub = publicKey as? XECPublicKey
-            ?: throw IllegalArgumentException("Expected XECPublicKey, got ${publicKey.javaClass.name}")
-        return uToRawBytes(xecPub.u)
+        val encoded = requireNotNull(publicKey.encoded) { "Public key encoding is null" }
+        require(encoded.size >= KEY_SIZE_BYTES) { "Encoded public key too short: ${encoded.size}" }
+        return encoded.copyOfRange(encoded.size - KEY_SIZE_BYTES, encoded.size)
     }
 
     /**
-     * Reconstructs an XECPublicKey from 32 raw little-endian bytes (RFC 7748).
+     * Extracts 32 raw bytes from an X25519 PrivateKey.
+     */
+    fun privateKeyToRawBytes(privateKey: PrivateKey): ByteArray {
+        val encoded = requireNotNull(privateKey.encoded) { "Private key encoding is null" }
+        require(encoded.size >= KEY_SIZE_BYTES) { "Encoded private key too short: ${encoded.size}" }
+        return encoded.copyOfRange(encoded.size - KEY_SIZE_BYTES, encoded.size)
+    }
+
+    /**
+     * Reconstructs an X25519 PublicKey from 32 raw little-endian bytes (RFC 7748)
+     * using standard ASN.1 X.509 SubjectPublicKeyInfo encoding.
      */
     fun rawBytesToPublicKey(rawBytes: ByteArray): PublicKey {
         require(rawBytes.size == KEY_SIZE_BYTES) {
             "X25519 public key must be exactly $KEY_SIZE_BYTES bytes, got ${rawBytes.size}"
         }
-        val reversed = ByteArray(KEY_SIZE_BYTES)
-        for (i in 0 until KEY_SIZE_BYTES) {
-            reversed[i] = rawBytes[KEY_SIZE_BYTES - 1 - i]
-        }
-        val u = BigInteger(1, reversed)
+        val x509Bytes = ByteArray(X509_X25519_PREFIX.size + KEY_SIZE_BYTES)
+        System.arraycopy(X509_X25519_PREFIX, 0, x509Bytes, 0, X509_X25519_PREFIX.size)
+        System.arraycopy(rawBytes, 0, x509Bytes, X509_X25519_PREFIX.size, KEY_SIZE_BYTES)
         val keyFactory = KeyFactory.getInstance("X25519")
-        return keyFactory.generatePublic(XECPublicKeySpec(NamedParameterSpec.X25519, u))
+        return keyFactory.generatePublic(X509EncodedKeySpec(x509Bytes))
     }
 
     /**
-     * Reconstructs an XECPrivateKey from 32 raw bytes scalar.
+     * Reconstructs an X25519 PrivateKey from 32 raw bytes scalar
+     * using standard ASN.1 PKCS#8 PrivateKeyInfo encoding.
      */
     fun rawBytesToPrivateKey(rawBytes: ByteArray): PrivateKey {
         require(rawBytes.size == KEY_SIZE_BYTES) {
             "X25519 private key must be exactly $KEY_SIZE_BYTES bytes, got ${rawBytes.size}"
         }
+        val pkcs8Bytes = ByteArray(PKCS8_X25519_PREFIX.size + KEY_SIZE_BYTES)
+        System.arraycopy(PKCS8_X25519_PREFIX, 0, pkcs8Bytes, 0, PKCS8_X25519_PREFIX.size)
+        System.arraycopy(rawBytes, 0, pkcs8Bytes, PKCS8_X25519_PREFIX.size, KEY_SIZE_BYTES)
         val keyFactory = KeyFactory.getInstance("X25519")
-        return keyFactory.generatePrivate(XECPrivateKeySpec(NamedParameterSpec.X25519, rawBytes))
+        return keyFactory.generatePrivate(PKCS8EncodedKeySpec(pkcs8Bytes))
     }
 
     /**
@@ -261,20 +286,18 @@ object CryptoEngine {
             "Recipient public key must be $KEY_SIZE_BYTES bytes, got ${recipientPublicKey.size}"
         }
 
-        val kpg = KeyPairGenerator.getInstance("X25519")
-        kpg.initialize(NamedParameterSpec.X25519, secureRandom)
-        val ephemeralKeyPair = kpg.generateKeyPair()
-        val ephemeralPubBytes = publicKeyToRawBytes(ephemeralKeyPair.public)
-
+        val ephemeralKeyPair = generateKeyPair(secureRandom)
+        val ephemeralPrivateKey = rawBytesToPrivateKey(ephemeralKeyPair.privateKey)
         val recipientKey = rawBytesToPublicKey(recipientPublicKey)
+
         val ka = KeyAgreement.getInstance("X25519")
-        ka.init(ephemeralKeyPair.private)
+        ka.init(ephemeralPrivateKey)
         ka.doPhase(recipientKey, true)
         val sharedSecret = ka.generateSecret()
 
         val derivedKey = hkdfSha256(
             ikm = sharedSecret,
-            salt = ephemeralPubBytes,
+            salt = ephemeralKeyPair.publicKey,
             info = DOMAIN_SEPARATOR,
             length = 32
         )
@@ -287,7 +310,7 @@ object CryptoEngine {
         val ciphertextWithTag = cipher.doFinal(plaintext)
 
         val payload = ByteArray(KEY_SIZE_BYTES + NONCE_SIZE_BYTES + ciphertextWithTag.size)
-        System.arraycopy(ephemeralPubBytes, 0, payload, 0, KEY_SIZE_BYTES)
+        System.arraycopy(ephemeralKeyPair.publicKey, 0, payload, 0, KEY_SIZE_BYTES)
         System.arraycopy(nonce, 0, payload, KEY_SIZE_BYTES, NONCE_SIZE_BYTES)
         System.arraycopy(ciphertextWithTag, 0, payload, KEY_SIZE_BYTES + NONCE_SIZE_BYTES, ciphertextWithTag.size)
 
@@ -404,19 +427,5 @@ object CryptoEngine {
         }
 
         return DecryptResult.Success(text = updatedText, secrets = secrets)
-    }
-
-    private fun uToRawBytes(u: BigInteger): ByteArray {
-        val beBytes = u.toByteArray()
-        val bigEndian32 = ByteArray(KEY_SIZE_BYTES)
-        val srcPos = if (beBytes.size > KEY_SIZE_BYTES) beBytes.size - KEY_SIZE_BYTES else 0
-        val length = minOf(KEY_SIZE_BYTES, beBytes.size)
-        val destPos = KEY_SIZE_BYTES - length
-        System.arraycopy(beBytes, srcPos, bigEndian32, destPos, length)
-        val le = ByteArray(KEY_SIZE_BYTES)
-        for (i in 0 until KEY_SIZE_BYTES) {
-            le[i] = bigEndian32[KEY_SIZE_BYTES - 1 - i]
-        }
-        return le
     }
 }

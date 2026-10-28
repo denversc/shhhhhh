@@ -258,4 +258,71 @@ class CryptoEngineTest : FunSpec({
             secrets = listOf(aliceSecret)
         )
     }
+
+    test("rawBytesToPublicKey and publicKeyToRawBytes round trip") {
+        val keyPair = CryptoEngine.generateKeyPair()
+        val pubKey = CryptoEngine.rawBytesToPublicKey(keyPair.publicKey)
+        val extracted = CryptoEngine.publicKeyToRawBytes(pubKey)
+        extracted shouldBe keyPair.publicKey
+    }
+
+    test("rawBytesToPrivateKey and privateKeyToRawBytes round trip") {
+        val keyPair = CryptoEngine.generateKeyPair()
+        val privKey = CryptoEngine.rawBytesToPrivateKey(keyPair.privateKey)
+        val extracted = CryptoEngine.privateKeyToRawBytes(privKey)
+        extracted shouldBe keyPair.privateKey
+    }
+
+    test("RFC 7748 Section 6.1 Curve25519 test vectors") {
+        fun hexToBytes(hex: String): ByteArray {
+            val cleanHex = hex.replace(" ", "")
+            val bytes = ByteArray(cleanHex.length / 2)
+            for (i in bytes.indices) {
+                val index = i * 2
+                bytes[i] = cleanHex.substring(index, index + 2).toInt(16).toByte()
+            }
+            return bytes
+        }
+
+        fun bytesToHex(bytes: ByteArray): String =
+            bytes.joinToString("") { "%02x".format(it) }
+
+        // RFC 7748 Section 6.1:
+        // Alice private key: 77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a
+        // Alice public key:  8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a
+        // Bob private key:   5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb
+        // Bob public key:    de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f
+        // Shared secret:     4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742
+
+        val alicePriv = hexToBytes("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a")
+        val expectedAlicePub = "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a"
+        val derivedAlicePub = CryptoEngine.derivePublicKey(alicePriv)
+        bytesToHex(derivedAlicePub) shouldBe expectedAlicePub
+
+        val bobPriv = hexToBytes("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb")
+        val expectedBobPub = "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f"
+        val derivedBobPub = CryptoEngine.derivePublicKey(bobPriv)
+        bytesToHex(derivedBobPub) shouldBe expectedBobPub
+
+        // Shared secret: Alice derives secret with Bob's public key
+        val alicePrivKey = CryptoEngine.rawBytesToPrivateKey(alicePriv)
+        val bobPubKey = CryptoEngine.rawBytesToPublicKey(hexToBytes(expectedBobPub))
+        val kaAlice = javax.crypto.KeyAgreement.getInstance("X25519")
+        kaAlice.init(alicePrivKey)
+        kaAlice.doPhase(bobPubKey, true)
+        val sharedAlice = kaAlice.generateSecret()
+
+        val expectedShared = "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742"
+        bytesToHex(sharedAlice) shouldBe expectedShared
+
+        // Shared secret: Bob derives secret with Alice's public key
+        val bobPrivKey = CryptoEngine.rawBytesToPrivateKey(bobPriv)
+        val alicePubKey = CryptoEngine.rawBytesToPublicKey(hexToBytes(expectedAlicePub))
+        val kaBob = javax.crypto.KeyAgreement.getInstance("X25519")
+        kaBob.init(bobPrivKey)
+        kaBob.doPhase(alicePubKey, true)
+        val sharedBob = kaBob.generateSecret()
+
+        bytesToHex(sharedBob) shouldBe expectedShared
+    }
 })
