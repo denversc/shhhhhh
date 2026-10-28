@@ -1,6 +1,7 @@
 package prefix924.shhhhhh
 
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Bundle
@@ -39,6 +40,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
@@ -71,14 +73,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -133,6 +139,42 @@ internal val CryptoKeyPairSaver: Saver<CryptoKeyPair?, Any> = listSaver(
     }
 )
 
+internal fun calculatePasteResult(
+    currentValue: TextFieldValue,
+    pasteText: String,
+    isFocused: Boolean
+): TextFieldValue {
+    val currentText = currentValue.text
+    val (start, end) = if (isFocused) {
+        val min = currentValue.selection.min.coerceIn(0, currentText.length)
+        val max = currentValue.selection.max.coerceIn(0, currentText.length)
+        min to max
+    } else {
+        currentText.length to currentText.length
+    }
+    val newText = currentText.replaceRange(start, end, pasteText)
+    val newCursorPos = start + pasteText.length
+    return TextFieldValue(
+        text = newText,
+        selection = TextRange(newCursorPos)
+    )
+}
+
+internal fun getClipboardText(context: Context, clipboardManager: ClipboardManager): String? {
+    val description = clipboardManager.primaryClipDescription ?: return null
+    val hasText = description.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN) ||
+        description.hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML) ||
+        description.hasMimeType("text/*")
+    if (!hasText) return null
+
+    val clip = clipboardManager.primaryClip ?: return null
+    if (clip.itemCount == 0) return null
+
+    val item = clip.getItemAt(0)
+    val itemText = item.text?.toString() ?: item.coerceToText(context)?.toString()
+    return if (!itemText.isNullOrEmpty()) itemText else null
+}
+
 class MainActivity : ComponentActivity() {
     private val appStorage: AppStorage by lazy {
         AndroidAppStorage.create(applicationContext)
@@ -183,13 +225,16 @@ class MainActivity : ComponentActivity() {
 fun MainScreen(userKeyPair: CryptoKeyPair) {
     val context = LocalContext.current
     val view = LocalView.current
+    val focusManager = LocalFocusManager.current
     val clipboardManager = remember {
         context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var text by remember { mutableStateOf("") }
+    var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
+    val text = textFieldValue.text
+    var isTextFieldFocused by remember { mutableStateOf(false) }
     var encryptState by remember { mutableStateOf(EncryptButtonState.ENCRYPT) }
     var decryptState by remember { mutableStateOf(DecryptButtonState.DECRYPT) }
     var overlayError by remember { mutableStateOf<DecryptError?>(null) }
@@ -211,6 +256,7 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
 
     fun triggerDecryptError(error: DecryptError) {
         overlayError = error
+        focusManager.clearFocus()
         view.performHapticFeedback(HapticFeedbackConstants.REJECT)
     }
 
@@ -255,12 +301,13 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.End,
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(
                         onClick = {
-                            text = ""
+                            textFieldValue = TextFieldValue("")
+                            focusManager.clearFocus()
                             encryptState = EncryptButtonState.ENCRYPT
                             decryptState = DecryptButtonState.DECRYPT
                             overlayError = null
@@ -279,7 +326,41 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
                         Text(text = "Clear", fontSize = 13.sp)
                     }
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(
+                        onClick = {
+                            val pasteText = getClipboardText(context, clipboardManager)
+                            if (pasteText != null) {
+                                textFieldValue = calculatePasteResult(
+                                    currentValue = textFieldValue,
+                                    pasteText = pasteText,
+                                    isFocused = isTextFieldFocused
+                                )
+                                overlayError = null
+                                dialogError = null
+                                if (encryptState == EncryptButtonState.COPY) {
+                                    encryptState = EncryptButtonState.ENCRYPT
+                                }
+                                if (decryptState == DecryptButtonState.COPY_SECRET) {
+                                    decryptState = DecryptButtonState.DECRYPT
+                                    decryptedSecrets = emptyList()
+                                    secretSpans = emptyList()
+                                }
+                                showSecretPickerSheet = false
+                            } else {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("Clipboard is empty")
+                                }
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentPaste,
+                            contentDescription = "Paste",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(text = "Paste", fontSize = 13.sp)
+                    }
 
                     TextButton(
                         onClick = {
@@ -360,9 +441,9 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
                         }
 
                         BasicTextField(
-                            value = text,
-                            onValueChange = { newText ->
-                                text = newText
+                            value = textFieldValue,
+                            onValueChange = { newValue ->
+                                textFieldValue = newValue
                                 overlayError = null
                                 if (encryptState == EncryptButtonState.COPY) {
                                     encryptState = EncryptButtonState.ENCRYPT
@@ -375,7 +456,9 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
                             },
                             visualTransformation = visualTransformation,
                             onTextLayout = { textLayoutResult = it },
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .onFocusChanged { isTextFieldFocused = it.isFocused },
                             textStyle = TextStyle(
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontSize = 16.sp
@@ -427,7 +510,8 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
                                     plaintext = text,
                                     recipientPublicKey = recipientPublicKey
                                 )
-                                text = ciphertext
+                                textFieldValue = TextFieldValue(ciphertext, selection = TextRange(ciphertext.length))
+                                focusManager.clearFocus()
                                 encryptState = EncryptButtonState.COPY
                                 decryptState = DecryptButtonState.DECRYPT
                                 decryptedSecrets = emptyList()
@@ -497,7 +581,8 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
                                             triggerDecryptError(DecryptError.AUTH_FAILED)
                                         }
                                         is DecryptResult.Success -> {
-                                            text = result.text
+                                            textFieldValue = TextFieldValue(result.text, selection = TextRange(result.text.length))
+                                            focusManager.clearFocus()
                                             decryptedSecrets = result.secrets
                                             secretSpans = findSecretSpans(result.text, result.secrets, result.ranges)
                                             decryptState = DecryptButtonState.COPY_SECRET
