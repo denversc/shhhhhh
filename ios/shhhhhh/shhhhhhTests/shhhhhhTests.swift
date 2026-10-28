@@ -994,6 +994,127 @@ struct shhhhhhTests {
         #expect(dismissCalled)
     }
 
+    // MARK: - SmartKeyExtractor Tests
+
+    @Test func testSmartKeyExtractorDirectValidKey() throws {
+        let keyPair = CryptoEngine.generateKeyPair()
+        let rawKey = keyPair.publicKeyBase64Url
+        #expect(rawKey.count == 43)
+
+        let extracted = SmartKeyExtractor.extractKey(from: rawKey)
+        #expect(extracted == rawKey)
+        #expect(SmartKeyExtractor.isValidPublicKey(rawKey))
+    }
+
+    @Test func testSmartKeyExtractorConversationalPreambleAndPostscript() throws {
+        let keyPair = CryptoEngine.generateKeyPair()
+        let rawKey = keyPair.publicKeyBase64Url
+
+        let conversational = "Hey Alice! Here's my public key: \(rawKey). Save it so we can chat securely!"
+        let extracted = SmartKeyExtractor.extractKey(from: conversational)
+        #expect(extracted == rawKey)
+    }
+
+    @Test func testSmartKeyExtractorWithNewlinesAndPunctuation() throws {
+        let keyPair = CryptoEngine.generateKeyPair()
+        let rawKey = keyPair.publicKeyBase64Url
+
+        let input = "Key:\n\t[\(rawKey)]\nThanks!"
+        let extracted = SmartKeyExtractor.extractKey(from: input)
+        #expect(extracted == rawKey)
+    }
+
+    @Test func testSmartKeyExtractorRejectsInvalidLengths() throws {
+        let keyPair = CryptoEngine.generateKeyPair()
+        let rawKey = keyPair.publicKeyBase64Url
+
+        // Too short (42 chars)
+        let shortKey = String(rawKey.prefix(42))
+        #expect(SmartKeyExtractor.extractKey(from: shortKey) == nil)
+        #expect(!SmartKeyExtractor.isValidPublicKey(shortKey))
+
+        // Too long (44 chars - appending a character)
+        let longKey = rawKey + "A"
+        #expect(SmartKeyExtractor.extractKey(from: longKey) == nil)
+        #expect(!SmartKeyExtractor.isValidPublicKey(longKey))
+
+        // Even longer token (50 chars)
+        let fiftyChars = rawKey + "1234567"
+        #expect(SmartKeyExtractor.extractKey(from: fiftyChars) == nil)
+        #expect(!SmartKeyExtractor.isValidPublicKey(fiftyChars))
+    }
+
+    @Test func testSmartKeyExtractorRejectsCiphertext() throws {
+        let alice = CryptoEngine.generateKeyPair()
+        let ciphertext = try CryptoEngine.encrypt("Secret message", recipientPublicKey: alice.publicKey)
+        #expect(ciphertext.count >= 166)
+
+        // Ciphertext should NOT be extracted as a public key
+        #expect(SmartKeyExtractor.extractKey(from: ciphertext) == nil)
+        #expect(!SmartKeyExtractor.isValidPublicKey(ciphertext))
+    }
+
+    @Test func testSmartKeyExtractorRejectsInvalidBase64Chars() throws {
+        // 43 chars but contains invalid chars (e.g. '@', '$', '!')
+        let invalidKey = "3kL9@xK89mZ2Q1pA0BvL81kLz0P82kL9xK89mZ2Q!#$"
+        #expect(SmartKeyExtractor.extractKey(from: invalidKey) == nil)
+        #expect(!SmartKeyExtractor.isValidPublicKey(invalidKey))
+    }
+
+    @Test func testSmartKeyExtractorEmptyAndWhitespace() throws {
+        #expect(SmartKeyExtractor.extractKey(from: "") == nil)
+        #expect(SmartKeyExtractor.extractKey(from: "   \n\t   ") == nil)
+    }
+
+    // MARK: - Contact Management & Recipient Encryption Tests
+
+    @Test func testContactStorageAndRetrieval() throws {
+        let storage = InMemoryAppStorage()
+        let bobKey = CryptoEngine.generateKeyPair()
+
+        let contact = ContactRecord(
+            name: "Bob",
+            publicKeyBase64Url: bobKey.publicKeyBase64Url
+        )
+        storage.saveContact(contact)
+
+        let loaded = storage.getContacts()
+        #expect(loaded.count == 1)
+        #expect(loaded[0].name == "Bob")
+        #expect(loaded[0].publicKeyBase64Url == bobKey.publicKeyBase64Url)
+    }
+
+    @Test func testEncryptMessageToContactDecryptedByContactPrivateKey() throws {
+        let bobKey = CryptoEngine.generateKeyPair()
+        let bobContact = ContactRecord(name: "Bob", publicKeyBase64Url: bobKey.publicKeyBase64Url)
+
+        // Sender converts contact public key and encrypts
+        let rawPub = try CryptoEngine.decodePublicKeyBase64Url(bobContact.publicKeyBase64Url)
+        let bobPubKey = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: rawPub)
+
+        let secret = "TopSecretPlan123"
+        let ciphertext = try CryptoEngine.encrypt(secret, recipientPublicKey: bobPubKey)
+
+        // Bob decrypts with his private key
+        let decrypted = try CryptoEngine.decryptToString(ciphertext, recipientPrivateKey: bobKey.privateKey)
+        #expect(decrypted == secret)
+
+        // Sender's own key CANNOT decrypt it (intended for Bob)
+        let aliceKey = CryptoEngine.generateKeyPair()
+        #expect(throws: CryptoError.authenticationFailed) {
+            _ = try CryptoEngine.decryptToString(ciphertext, recipientPrivateKey: aliceKey.privateKey)
+        }
+    }
+
+    @Test func testEncryptToMyselfDecryptedByOwnPrivateKey() throws {
+        let myKey = CryptoEngine.generateKeyPair()
+        let secret = "PersonalNote456"
+
+        let ciphertext = try CryptoEngine.encrypt(secret, recipientPublicKey: myKey.publicKey)
+        let decrypted = try CryptoEngine.decryptToString(ciphertext, recipientPrivateKey: myKey.privateKey)
+        #expect(decrypted == secret)
+    }
+
     // MARK: - Test Helpers
 
     private func hexToData(_ hex: String) -> Data {

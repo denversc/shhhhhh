@@ -309,4 +309,92 @@ final class shhhhhhUITests: XCTestCase {
 
         XCTAssertFalse(myPubKeyHeader.exists)
     }
+
+    @MainActor
+    func testContactSelectionAndImportFlow() throws {
+        let app = launchApp(resetStorage: true)
+
+        // Restore known backup to enter main screen
+        let restoreButton = app.buttons["restore_backup_button"]
+        XCTAssertTrue(restoreButton.waitForExistence(timeout: 5.0))
+        restoreButton.tap()
+
+        let textEditor = app.textViews["restore_text_editor"]
+        XCTAssertTrue(textEditor.waitForExistence(timeout: 5.0))
+        textEditor.tap()
+        textEditor.typeText("contact-import-flow-key")
+
+        let confirmRestoreButton = app.buttons["confirm_restore_button"]
+        confirmRestoreButton.tap()
+
+        // Verify recipient button on main screen displays Myself (This Device)
+        let recipientButton = app.buttons["recipient_selector_button"]
+        XCTAssertTrue(recipientButton.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(app.staticTexts["Myself (This Device)"].exists)
+
+        // 1. Open Contact Selection Sheet
+        recipientButton.tap()
+
+        let sheetTitle = app.staticTexts["Contacts & Settings"]
+        XCTAssertTrue(sheetTitle.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(app.buttons["contact_item_myself"].exists)
+        XCTAssertTrue(app.buttons["copy_my_public_key_button"].exists)
+        XCTAssertTrue(app.staticTexts["my_public_key_text"].exists)
+
+        // 2. Open Add Contact Modal
+        let addNewContactButton = app.buttons["add_new_contact_button"]
+        XCTAssertTrue(addNewContactButton.exists)
+        addNewContactButton.tap()
+
+        let addContactTitle = app.navigationBars["Add New Contact"]
+        XCTAssertTrue(addContactTitle.waitForExistence(timeout: 5.0))
+
+        let saveButton = app.buttons["add_contact_save_button"]
+        XCTAssertTrue(saveButton.exists)
+        XCTAssertFalse(saveButton.isEnabled)
+
+        // 3. Enter contact name
+        let nameField = app.textFields["add_contact_name_input"]
+        XCTAssertTrue(nameField.exists)
+        nameField.tap()
+        nameField.typeText("Alice")
+
+        // Save still disabled without key
+        XCTAssertFalse(saveButton.isEnabled)
+
+        // 4. Enter valid key embedded in conversational text (test smart extraction)
+        let keyField = app.textViews["add_contact_key_input"].exists ? app.textViews["add_contact_key_input"] : app.textFields["add_contact_key_input"]
+        XCTAssertTrue(keyField.exists)
+        keyField.tap()
+        keyField.typeText("Hey! Here is my public key: f78YxIRZu8I5DQCMDQ-WD4hZvYtObgQ7_0SsFgpnkEc Thanks!")
+
+        // Verified smart extractor detected the key
+        let feedback = app.descendants(matching: .any)["add_contact_feedback_text"]
+        XCTAssertTrue(feedback.waitForExistence(timeout: 3.0))
+        XCTAssertTrue(saveButton.isEnabled)
+
+        // 5. Save contact and verify dismissal back to MainScreen
+        saveButton.tap()
+
+        let mainEditor = app.textViews["main_text_editor"]
+        XCTAssertTrue(mainEditor.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(app.staticTexts["Alice"].waitForExistence(timeout: 5.0))
+
+        // 6. Test message encryption to Alice
+        mainEditor.tap()
+        mainEditor.typeText("SecretPayloadForAlice")
+
+        let encryptButton = app.buttons["Encrypt"]
+        encryptButton.tap()
+
+        let copyCiphertextButton = app.buttons["Copy Ciphertext"]
+        XCTAssertTrue(copyCiphertextButton.waitForExistence(timeout: 5.0))
+
+        // 7. Re-open sheet and switch back to Myself
+        recipientButton.tap()
+        XCTAssertTrue(sheetTitle.waitForExistence(timeout: 5.0))
+        app.buttons["contact_item_myself"].tap()
+
+        XCTAssertTrue(app.staticTexts["Myself (This Device)"].waitForExistence(timeout: 5.0))
+    }
 }
