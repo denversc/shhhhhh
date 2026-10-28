@@ -5,6 +5,7 @@
 //  Created by Denver Coneybeare on 2026-10-27.
 //
 
+import CryptoKit
 import Darwin
 import QuartzCore
 import SwiftUI
@@ -25,7 +26,7 @@ private let minKeygenSpinnerMs: UInt64 = 650
 private let brandBlue = Color(red: 0x1A / 255.0, green: 0x73 / 255.0, blue: 0xE8 / 255.0)
 
 struct OnboardingView: View {
-    let onComplete: () -> Void
+    let onComplete: (CryptoKeyPair) -> Void
 
     @State private var segments: [StrokeSegment] = []
     @State private var dots: [CGPoint] = []
@@ -33,6 +34,7 @@ struct OnboardingView: View {
     @State private var isKeyReady: Bool = false
     @State private var isGenerating: Bool = false
     @State private var showRestoreSheet: Bool = false
+    @State private var generatedKeyPair: CryptoKeyPair? = nil
 
     @State private var currentGestureLastPoint: CGPoint? = nil
     @State private var currentGestureHasDragged: Bool = false
@@ -118,8 +120,8 @@ struct OnboardingView: View {
 
                 // Primary Action / Key Generation Status Button (50pt height, 10pt corner radius)
                 Button(action: {
-                    if isKeyReady {
-                        onComplete()
+                    if isKeyReady, let keyPair = generatedKeyPair {
+                        onComplete(keyPair)
                     }
                 }) {
                     HStack(spacing: 10) {
@@ -250,7 +252,7 @@ struct OnboardingView: View {
         isGenerating = true
         Task {
             let startTime = CACurrentMediaTime()
-            _ = await Task.detached(priority: .userInitiated) {
+            let seed = await Task.detached(priority: .userInitiated) {
                 entropyAccumulator.generateCombinedSeed()
             }.value
 
@@ -260,7 +262,10 @@ struct OnboardingView: View {
                 try? await Task.sleep(nanoseconds: UInt64(remainingMs * 1_000_000))
             }
 
+            let keyPair = try! CryptoKeyPair(rawRepresentation: Data(seed))
+
             await MainActor.run {
+                generatedKeyPair = keyPair
                 isGenerating = false
                 isKeyReady = true
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -309,7 +314,7 @@ struct OnboardingView: View {
 // MARK: - Restore from Backup Sheet
 
 struct RestoreBackupSheet: View {
-    let onRestoreComplete: () -> Void
+    let onRestoreComplete: (CryptoKeyPair) -> Void
     @Environment(\.dismiss) private var dismiss
 
     @State private var backupInput: String = ""
@@ -414,12 +419,77 @@ struct RestoreBackupSheet: View {
         if backupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             restoreError = "Please paste a backup bundle before restoring."
         } else {
-            dismiss()
-            onRestoreComplete()
+            do {
+                let restored = try restoreKeyPairFromBackup(backupInput)
+                dismiss()
+                onRestoreComplete(restored)
+            } catch {
+                restoreError = "Invalid backup: \(error.localizedDescription)"
+            }
         }
     }
 }
 
+// MARK: - Restore from Backup Helper
+
+enum RestoreBackupError: LocalizedError, Equatable {
+    case blankInput
+
+    var errorDescription: String? {
+        switch self {
+        case .blankInput:
+            return "Backup string cannot be blank"
+        }
+    }
+}
+
+/// Reconstructs a CryptoKeyPair from a backup string.
+///
+/// If the input is a 43-character Base64URL string (or valid 32-byte key), reconstructs
+/// the key pair from that private key scalar. Otherwise, generates a deterministic key pair
+/// from the SHA-256 digest of the backup string.
+func restoreKeyPairFromBackup(_ input: String) throws -> CryptoKeyPair {
+    let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+        throw RestoreBackupError.blankInput
+    }
+
+    if trimmed.count == 43 {
+        if let data = CryptoEngine.base64UrlDecode(trimmed), data.count == CryptoEngine.keySizeBytes {
+            if let kp = try? CryptoKeyPair(rawRepresentation: data) {
+                return kp
+            }
+        }
+    } else if trimmed.count == 44 {
+        if let data = CryptoEngine.base64UrlDecode(trimmed), data.count == CryptoEngine.keySizeBytes {
+            if let kp = try? CryptoKeyPair(rawRepresentation: data) {
+                return kp
+            }
+        }
+        if let data = Data(base64Encoded: trimmed), data.count == CryptoEngine.keySizeBytes {
+            if let kp = try? CryptoKeyPair(rawRepresentation: data) {
+                return kp
+            }
+        }
+    } else if trimmed.count == 64 && trimmed.allSatisfy({ "0123456789abcdefABCDEF".contains($0) }) {
+        var data = Data()
+        var index = trimmed.startIndex
+        while index < trimmed.endIndex {
+            let nextIndex = trimmed.index(index, offsetBy: 2)
+            if let byte = UInt8(trimmed[index..<nextIndex], radix: 16) {
+                data.append(byte)
+            }
+            index = nextIndex
+        }
+        if data.count == CryptoEngine.keySizeBytes, let kp = try? CryptoKeyPair(rawRepresentation: data) {
+            return kp
+        }
+    }
+
+    let digest = SHA256.hash(data: Data(trimmed.utf8))
+    return try! CryptoKeyPair(rawRepresentation: Data(digest))
+}
+
 #Preview {
-    OnboardingView(onComplete: {})
+    OnboardingView(onComplete: { _ in })
 }

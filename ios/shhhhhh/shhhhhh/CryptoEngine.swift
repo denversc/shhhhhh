@@ -18,6 +18,11 @@ public struct CryptoKeyPair: Equatable {
         CryptoEngine.base64UrlEncode(publicKey.rawRepresentation)
     }
 
+    /// Unpadded Base64URL representation of the 32-byte raw private key (43 characters).
+    public var privateKeyBase64Url: String {
+        CryptoEngine.base64UrlEncode(privateKey.rawRepresentation)
+    }
+
     public init(privateKey: Curve25519.KeyAgreement.PrivateKey) {
         self.privateKey = privateKey
         self.publicKey = privateKey.publicKey

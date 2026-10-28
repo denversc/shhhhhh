@@ -8,11 +8,6 @@
 import SwiftUI
 import UIKit
 
-private let sampleCiphertext =
-    "xK89_mZ2Q1pA0-BvL81kLz0P82kL9xK89mZ2Q1pA0-BvL81kLz0P82kL9xK89mZ2Q1pA0-BvL81kLz0P82kL9"
-private let samplePlaintext = "BankPassword123!"
-private let ciphertextCandidateRegex = try! NSRegularExpression(pattern: "[A-Za-z0-9_-]{80,}")
-
 enum EncryptButtonState {
     case encrypt
     case copyCiphertext
@@ -40,8 +35,10 @@ enum DecryptError: String, Identifiable {
 }
 
 struct ContentView: View {
+    @State private var userKeyPair: CryptoKeyPair? = nil
     @State private var hasCompletedOnboarding: Bool = false
     @State private var text: String = ""
+    @State private var decryptedSecrets: [String] = []
     @State private var encryptState: EncryptButtonState = .encrypt
     @State private var decryptState: DecryptButtonState = .decrypt
     @State private var overlayError: DecryptError? = nil
@@ -52,11 +49,17 @@ struct ContentView: View {
     @State private var programmaticTextTarget: String? = nil
     @State private var isDecryptPressed: Bool = false
 
+    init(userKeyPair: CryptoKeyPair? = nil, hasCompletedOnboarding: Bool = false) {
+        _userKeyPair = State(initialValue: userKeyPair)
+        _hasCompletedOnboarding = State(initialValue: hasCompletedOnboarding)
+    }
+
     var body: some View {
         Group {
-            if !hasCompletedOnboarding {
-                OnboardingView(onComplete: {
+            if !hasCompletedOnboarding || userKeyPair == nil {
+                OnboardingView(onComplete: { keyPair in
                     withAnimation(.easeInOut(duration: 0.35)) {
+                        self.userKeyPair = keyPair
                         hasCompletedOnboarding = true
                     }
                 })
@@ -118,6 +121,7 @@ struct ContentView: View {
                             .padding(.vertical, 4)
                             .scrollContentBackground(.hidden)
                             .background(Color.clear)
+                            .accessibilityIdentifier("main_text_editor")
                             .onChange(of: text) { _, newValue in
                                 handleTextChange(newValue)
                             }
@@ -286,14 +290,10 @@ struct ContentView: View {
         }
     }
 
-    private func triggerDecryptError(_ error: DecryptError) {
-        overlayError = error
-        UINotificationFeedbackGenerator().notificationOccurred(.error)
-    }
-
     private func handleClear() {
         programmaticTextTarget = nil
         text = ""
+        decryptedSecrets = []
         encryptState = .encrypt
         decryptState = .decrypt
         overlayError = nil
@@ -319,17 +319,24 @@ struct ContentView: View {
         }
         if decryptState == .copySecret {
             decryptState = .decrypt
+            decryptedSecrets = []
         }
     }
 
     private func handleEncryptTap() {
         overlayError = nil
         if encryptState == .encrypt {
-            // Placeholder: Encrypts text in-place into sample Base64URL ciphertext
-            setProgrammaticText(sampleCiphertext)
-            encryptState = .copyCiphertext
-            decryptState = .decrypt
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            guard let userKeyPair else { return }
+            let recipientPublicKey = userKeyPair.publicKey
+            do {
+                let ciphertext = try CryptoEngine.encrypt(text, recipientPublicKey: recipientPublicKey)
+                setProgrammaticText(ciphertext)
+                encryptState = .copyCiphertext
+                decryptState = .decrypt
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            } catch {
+                // Encryption failure or invalid input
+            }
         } else {
             // Copy Ciphertext
             UIPasteboard.general.string = text
@@ -339,40 +346,33 @@ struct ContentView: View {
 
     private func handleDecryptTap() {
         if decryptState == .decrypt {
-            let fullNSRange = NSRange(text.startIndex..<text.endIndex, in: text)
-            let matches = ciphertextCandidateRegex.matches(in: text, range: fullNSRange)
-            if matches.isEmpty {
+            guard let userKeyPair else { return }
+            let result = CryptoEngine.decryptTextWithCandidates(text, recipientPrivateKey: userKeyPair.privateKey)
+            switch result {
+            case .noCandidates:
                 decryptState = .decrypt
                 encryptState = .encrypt
-                triggerDecryptError(.noCandidates)
-            } else {
-                var anyDecrypted = false
-                var updatedText = text
-                for match in matches.reversed() {
-                    guard let swiftRange = Range(match.range, in: updatedText) else { continue }
-                    let candidate = String(updatedText[swiftRange])
-                    if candidate == sampleCiphertext {
-                        updatedText.replaceSubrange(swiftRange, with: samplePlaintext)
-                        anyDecrypted = true
-                    }
-                }
-                if anyDecrypted {
-                    setProgrammaticText(updatedText)
-                    decryptState = .copySecret
-                    encryptState = .encrypt
-                    overlayError = nil
-                    alertError = nil
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                } else {
-                    decryptState = .decrypt
-                    encryptState = .encrypt
-                    triggerDecryptError(.authFailed)
-                }
+                overlayError = .noCandidates
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            case .authFailed:
+                decryptState = .decrypt
+                encryptState = .encrypt
+                overlayError = .authFailed
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            case .success(let updatedText, let secrets):
+                setProgrammaticText(updatedText)
+                decryptedSecrets = secrets
+                decryptState = .copySecret
+                encryptState = .encrypt
+                overlayError = nil
+                alertError = nil
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
             }
         } else {
-            // Copy Secret exclusively (1-tap)
-            UIPasteboard.general.string = samplePlaintext
-            showCopiedFeedback("Copied secret: \(samplePlaintext)")
+            // Tapping [Copy Secret] copies the first secret (or single secret).
+            let secretToCopy = decryptedSecrets.first ?? ""
+            UIPasteboard.general.string = secretToCopy
+            showCopiedFeedback("Copied secret: \(secretToCopy)")
         }
     }
 

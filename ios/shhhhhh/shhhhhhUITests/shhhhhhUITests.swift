@@ -71,6 +71,24 @@ final class shhhhhhUITests: XCTestCase {
         XCTAssertTrue(recipientLabel.waitForExistence(timeout: 5.0))
         XCTAssertTrue(app.buttons["Encrypt"].exists)
         XCTAssertTrue(app.buttons["Decrypt"].exists)
+
+        // Verify live Encrypt and Decrypt flow
+        let mainEditor = app.textViews["main_text_editor"]
+        XCTAssertTrue(mainEditor.waitForExistence(timeout: 5.0))
+        mainEditor.tap()
+        mainEditor.typeText("SecretMeetingAtNoon")
+
+        let encryptButton = app.buttons["Encrypt"]
+        encryptButton.tap()
+
+        let copyCiphertextButton = app.buttons["Copy Ciphertext"]
+        XCTAssertTrue(copyCiphertextButton.waitForExistence(timeout: 5.0))
+
+        let decryptButton = app.buttons["Decrypt"]
+        decryptButton.tap()
+
+        let copySecretButton = app.buttons["Copy Secret"]
+        XCTAssertTrue(copySecretButton.waitForExistence(timeout: 5.0))
     }
 
     @MainActor

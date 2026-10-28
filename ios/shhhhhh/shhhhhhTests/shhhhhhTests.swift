@@ -317,6 +317,87 @@ struct shhhhhhTests {
         ))
     }
 
+    // MARK: - Key Generation from Entropy Seed
+
+    @Test func testGeneratingKeyPairFromAccumulatedEntropySeed() throws {
+        let acc = EntropyAccumulator()
+        acc.addSample(x: 45.0, y: 90.0, dx: 2.0, dy: 3.0, timestampNanos: 123456789)
+        let seed = acc.generateCombinedSeed()
+        #expect(seed.count == 32)
+
+        let keyPair = try CryptoKeyPair(rawRepresentation: Data(seed))
+        #expect(keyPair.privateKey.rawRepresentation.count == 32)
+        #expect(keyPair.publicKey.rawRepresentation.count == 32)
+        #expect(keyPair.publicKeyBase64Url.count == 43)
+
+        // Able to encrypt and decrypt
+        let ciphertext = try CryptoEngine.encrypt("hello entropy", recipientPublicKey: keyPair.publicKey)
+        let decrypted = try CryptoEngine.decryptToString(ciphertext, recipientPrivateKey: keyPair.privateKey)
+        #expect(decrypted == "hello entropy")
+    }
+
+    // MARK: - Restore Key Pair from Backup Tests
+
+    @Test func testRestoreKeyPairFromBackup43CharBase64Url() throws {
+        let originalKeyPair = CryptoEngine.generateKeyPair()
+        let privateKeyBase64Url = originalKeyPair.privateKeyBase64Url
+        #expect(privateKeyBase64Url.count == 43)
+
+        let restored = try restoreKeyPairFromBackup(privateKeyBase64Url)
+        #expect(restored.privateKey.rawRepresentation == originalKeyPair.privateKey.rawRepresentation)
+        #expect(restored.publicKey.rawRepresentation == originalKeyPair.publicKey.rawRepresentation)
+        #expect(restored == originalKeyPair)
+    }
+
+    @Test func testRestoreKeyPairFromBackupDeterministicForArbitraryText() throws {
+        let text1 = "correct horse battery staple"
+        let text2 = "shhhhhh paper backup test 2026"
+
+        let kp1a = try restoreKeyPairFromBackup(text1)
+        let kp1b = try restoreKeyPairFromBackup(text1)
+        let kp2 = try restoreKeyPairFromBackup(text2)
+
+        // Deterministic: same text yields same key pair
+        #expect(kp1a == kp1b)
+        #expect(kp1a.privateKey.rawRepresentation.count == 32)
+        #expect(kp1a.publicKey.rawRepresentation.count == 32)
+
+        // Different text yields different key pair
+        #expect(kp1a != kp2)
+
+        // Functioning key pair: can encrypt and decrypt
+        let secret = "Secret message for restored key"
+        let ciphertext = try CryptoEngine.encrypt(secret, recipientPublicKey: kp1a.publicKey)
+        let decrypted = try CryptoEngine.decryptToString(ciphertext, recipientPrivateKey: kp1a.privateKey)
+        #expect(decrypted == secret)
+    }
+
+    @Test func testRestoreKeyPairFromBackupThrowsOnBlankInput() throws {
+        #expect(throws: RestoreBackupError.blankInput) {
+            try restoreKeyPairFromBackup("")
+        }
+        #expect(throws: RestoreBackupError.blankInput) {
+            try restoreKeyPairFromBackup("   \n\t  ")
+        }
+    }
+
+    @Test func testRestoreKeyPairFromBackupPaddedBase64AndHex() throws {
+        let originalKeyPair = CryptoEngine.generateKeyPair()
+        let privData = originalKeyPair.privateKey.rawRepresentation
+
+        // 44-char padded Base64
+        let paddedBase64 = privData.base64EncodedString()
+        #expect(paddedBase64.count == 44)
+        let restoredFromBase64 = try restoreKeyPairFromBackup(paddedBase64)
+        #expect(restoredFromBase64 == originalKeyPair)
+
+        // 64-char hex
+        let hexString = dataToHex(privData)
+        #expect(hexString.count == 64)
+        let restoredFromHex = try restoreKeyPairFromBackup(hexString)
+        #expect(restoredFromHex == originalKeyPair)
+    }
+
     // MARK: - Test Helpers
 
     private func hexToData(_ hex: String) -> Data {
