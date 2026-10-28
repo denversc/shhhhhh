@@ -74,10 +74,11 @@ The application allows two parties (such as partners, spouses, or close contacts
       - **Tap (Multiple Secrets)**: Opens an overlay sheet/picker to select which decrypted secret to copy (2-step).
       - **Long-Press**: Copies the entire contents of the text box (the decrypted secret and all surrounding conversational text).
       - **Reversion**: As soon as the text inside the text box is edited, typed into, replaced, or **Encrypt** is clicked, the button reverts to **`[Decrypt]`**.
-  - **Copy Button**: Positioned conveniently near the text box; copies whatever text is currently in the text box directly to the clipboard verbatim (no auto-copy, no whitespace stripping, even if empty).
-  - **Clear Button**: A dedicated one-tap button (e.g., positioned inside the text box corner or adjacent to Copy in a fixed position) that immediately wipes all text from the box, resets the Encrypt/Decrypt buttons back to their default states, and dismisses any active error overlays.
+  - **Clear Button**: A dedicated one-tap button (positioned on the leading side of the utility bar) that immediately wipes all text from the box, resets the Encrypt/Decrypt buttons back to their default states, and dismisses any active error overlays.
+  - **Paste Button**: A dedicated one-tap button positioned in the middle of the utility bar (between Clear on the left and Copy on the right) that inserts whatever text is in the clipboard at the cursor position in the text box (or replaces actively selected text, or appends to the end of existing text if unfocused) without clearing the text box contents. If the clipboard is empty, displays a transient feedback message. Pasting dismisses any active error overlays and reverts morphing action buttons to their default states.
+  - **Copy Button**: Positioned on the trailing side of the utility bar; copies whatever text is currently in the text box directly to the clipboard verbatim (no auto-copy, no whitespace stripping, even if empty).
   - **Contact Selector Widget**: Positioned adjacent to action buttons, showing current recipient (defaults to "Myself"). Tapping it opens the Contact Selection sheet.
-  - **Strict Zero Layout Shift**: Pre-decryption and pre-encryption UI elements (text box, Encrypt button, Decrypt button, Copy button, Contact Selector) MUST NOT move, resize, or jump when actions occur.
+  - **Strict Zero Layout Shift**: Pre-decryption and pre-encryption UI elements (text box, Encrypt button, Decrypt button, Clear/Paste/Copy buttons, Contact Selector) MUST NOT move, resize, or jump when actions occur.
 
 - **Contact Management & Public Key Sharing**:
   - Centralized in the **Contact Selection sheet**:
@@ -179,7 +180,7 @@ The application allows two parties (such as partners, spouses, or close contacts
 |  |                                    |  |
 |  |                                    |  |
 |  |                                    |  |
-|  |                      [Clear] [Copy]|  |
+|  | [Clear]       [Paste]       [Copy] |  |
 |  +------------------------------------+  |
 |                                          |
 |  +------------------+  +--------------+  |
@@ -207,7 +208,7 @@ The application allows two parties (such as partners, spouses, or close contacts
 |  |                                    |  |
 |  |                                    |  |
 |  |                                    |  |
-|  |                      [Clear] [Copy]|  |
+|  | [Clear]       [Paste]       [Copy] |  |
 |  +------------------------------------+  |
 |                                          |
 |  +------------------+  +--------------+  |
@@ -234,7 +235,7 @@ The application allows two parties (such as partners, spouses, or close contacts
 |  | | 🔒 BankPassword123!             | |  |  <- Inline Tappable Span
 |  | +--------------------------------+ |  |     (Tap to copy secret)
 |  | let me know when you are done!     |  |
-|  |                      [Clear] [Copy]|  |
+|  | [Clear]       [Paste]       [Copy] |  |
 |  +------------------------------------+  |
 |                                          |
 |  +------------------+  +--------------+  |
@@ -262,7 +263,7 @@ The application allows two parties (such as partners, spouses, or close contacts
 |  |          |   ⚠️  Error    |        |  |  <- Red overlay button
 |  |          +----------------+        |  |     (Tap: Opens Alert dialog;
 |  |                                    |  |      Tap outside: Dismisses)
-|  |                      [Clear] [Copy]|  |
+|  | [Clear]       [Paste]       [Copy] |  |
 |  +------------------------------------+  |
 |                                          |
 |  +------------------+  +--------------+  |
@@ -355,7 +356,7 @@ The application allows two parties (such as partners, spouses, or close contacts
 - **[Decided] Key Management Model**: Asymmetric public/private key pairs. Each user generates keys using device entropy. Users exchange public keys out-of-band and maintain an in-app Contact List.
 - **[Decided] Decryption & Sender Verification**: Anonymous / Sealed Box model. Ephemeral sender key is bundled with the ciphertext, allowing immediate decryption using recipient's private key without contact selection.
 - **[Decided] Screen Layout & Navigation**: Unified single-screen architecture. Separate Encrypt and Decrypt buttons. Contact Selector widget adjacent to buttons. Empty contacts default to "Myself". Contact selection sheet/dialog displays even if only one contact exists. Editing/deleting contacts deferred to future releases.
-- **[Decided] Text Box & Clipboard UX**: Single shared multi-line text box with in-place text replacement. Dedicated "Copy" button that verbatim copies whatever text is in the box (even empty, no trimming). Dedicated "Clear" button that instantly wipes the text box and resets state. No automatic clipboard overwriting.
+- **[Decided] Text Box & Clipboard UX**: Single shared multi-line text box with in-place text replacement. Dedicated utility bar with 'Clear', 'Paste', and 'Copy' buttons. Dedicated "Paste" button inserts clipboard text at the cursor position (or replaces actively selected text, or appends to end if unfocused) without clearing existing contents; displays transient feedback if clipboard is empty. Dedicated "Copy" button that verbatim copies whatever text is in the box (even empty, no trimming). Dedicated "Clear" button that instantly wipes the text box and resets state. No automatic clipboard overwriting.
 - **[Decided] Zero Layout Shift & Post-Action Copying**:
   - `[Encrypt]` morphs in-place into `[Copy]` (with Copy icon).
   - `[Decrypt]` morphs in-place into `[Copy Secret]` (with Copy icon). Tap copies isolated secret (or opens picker for multiple secrets); long-press copies entire text box.
