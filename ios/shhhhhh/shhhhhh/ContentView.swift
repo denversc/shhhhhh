@@ -40,6 +40,8 @@ struct ContentView: View {
     @State private var userKeyPair: CryptoKeyPair? = nil
     @State private var hasCompletedOnboarding: Bool = false
     @State private var text: String = ""
+    @State private var selectedRange: NSRange = NSRange(location: 0, length: 0)
+    @State private var isEditorFocused: Bool = false
     @State private var decryptedSecrets: [String] = []
     @State private var secretSpans: [SecretSpan] = []
     @State private var encryptState: EncryptButtonState = .encrypt
@@ -111,7 +113,6 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     // Utility bar pinned at top of text box container
                     HStack {
-                        Spacer()
                         Button(action: handleClear) {
                             HStack(spacing: 4) {
                                 Image(systemName: "xmark.circle")
@@ -120,7 +121,19 @@ struct ContentView: View {
                             .font(.subheadline)
                             .foregroundColor(.primary)
                         }
-                        .padding(.trailing, 12)
+
+                        Spacer()
+
+                        Button(action: handlePaste) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "doc.on.clipboard")
+                                Text("Paste")
+                            }
+                            .font(.subheadline)
+                            .foregroundColor(.primary)
+                        }
+
+                        Spacer()
 
                         Button(action: handleCopyVerbatim) {
                             HStack(spacing: 4) {
@@ -150,6 +163,8 @@ struct ContentView: View {
 
                         SecretTextEditor(
                             text: $text,
+                            selectedRange: $selectedRange,
+                            isFocused: $isEditorFocused,
                             spans: secretSpans,
                             isHighlightActive: decryptState == .copySecret,
                             onSecretTapped: { secret in
@@ -349,12 +364,42 @@ struct ContentView: View {
     private func handleClear() {
         programmaticTextTarget = nil
         text = ""
+        selectedRange = NSRange(location: 0, length: 0)
         decryptedSecrets = []
         secretSpans = []
         showSecretPickerSheet = false
         encryptState = .encrypt
         decryptState = .decrypt
         overlayError = nil
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    private func handlePaste() {
+        guard let clipboardText = UIPasteboard.general.string, !clipboardText.isEmpty else {
+            showCopiedFeedback("Clipboard is empty")
+            return
+        }
+
+        let (newText, newRange) = applyTextInsertion(
+            currentText: text,
+            insertedText: clipboardText,
+            selectedRange: selectedRange,
+            isFocused: isEditorFocused
+        )
+
+        selectedRange = newRange
+        setProgrammaticText(newText)
+
+        overlayError = nil
+        if encryptState == .copyCiphertext {
+            encryptState = .encrypt
+        }
+        if decryptState == .copySecret {
+            decryptState = .decrypt
+            decryptedSecrets = []
+            secretSpans = []
+            showSecretPickerSheet = false
+        }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
