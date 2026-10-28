@@ -87,6 +87,8 @@ import kotlinx.coroutines.launch
 import prefix924.shhhhhh.crypto.CryptoEngine
 import prefix924.shhhhhh.crypto.CryptoKeyPair
 import prefix924.shhhhhh.crypto.DecryptResult
+import prefix924.shhhhhh.storage.AndroidAppStorage
+import prefix924.shhhhhh.storage.AppStorage
 import prefix924.shhhhhh.ui.theme.ShhhhhhTheme
 
 enum class EncryptButtonState {
@@ -132,15 +134,26 @@ internal val CryptoKeyPairSaver: Saver<CryptoKeyPair?, Any> = listSaver(
 )
 
 class MainActivity : ComponentActivity() {
+    private val appStorage: AppStorage by lazy {
+        AndroidAppStorage.create(applicationContext)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val loadedKeyPair = appStorage.loadKeyPair()
+        val completedOnboarding = appStorage.hasCompletedOnboarding()
+        val isReady = completedOnboarding && loadedKeyPair != null
+
         setContent {
             ShhhhhhTheme {
                 var userKeyPair by rememberSaveable(stateSaver = CryptoKeyPairSaver) {
-                    mutableStateOf<CryptoKeyPair?>(null)
+                    mutableStateOf(if (isReady) loadedKeyPair else null)
                 }
-                var hasCompletedOnboarding by rememberSaveable { mutableStateOf(false) }
+                var hasCompletedOnboarding by rememberSaveable {
+                    mutableStateOf(isReady)
+                }
 
                 Crossfade(
                     targetState = hasCompletedOnboarding && userKeyPair != null,
@@ -152,6 +165,8 @@ class MainActivity : ComponentActivity() {
                     } else {
                         OnboardingScreen(
                             onComplete = { kp ->
+                                appStorage.saveKeyPair(kp)
+                                appStorage.setCompletedOnboarding(true)
                                 userKeyPair = kp
                                 hasCompletedOnboarding = true
                             }
