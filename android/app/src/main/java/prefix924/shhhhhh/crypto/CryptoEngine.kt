@@ -450,6 +450,44 @@ object CryptoEngine {
     ): String = encrypt(plaintext.toByteArray(Charsets.UTF_8), recipientPublicKey, minFloor = DEFAULT_MIN_FLOOR, secureRandom = secureRandom)
 
     /**
+     * Encrypts binary plaintext using Floored PADME Sealed Box v2 format for an X25519 [PublicKey] recipient.
+     */
+    fun encrypt(
+        plaintext: ByteArray,
+        recipientPublicKey: PublicKey,
+        secureRandom: SecureRandom = SecureRandom()
+    ): String = encrypt(plaintext, publicKeyToRawBytes(recipientPublicKey), DEFAULT_MIN_FLOOR, secureRandom)
+
+    /**
+     * Encrypts binary plaintext using Floored PADME Sealed Box v2 format for an X25519 [PublicKey] recipient with custom floor.
+     */
+    fun encrypt(
+        plaintext: ByteArray,
+        recipientPublicKey: PublicKey,
+        minFloor: Int,
+        secureRandom: SecureRandom = SecureRandom()
+    ): String = encrypt(plaintext, publicKeyToRawBytes(recipientPublicKey), minFloor, secureRandom)
+
+    /**
+     * Encrypts UTF-8 string plaintext into unpadded Base64URL sealed box v2 for an X25519 [PublicKey] recipient.
+     */
+    fun encrypt(
+        plaintext: String,
+        recipientPublicKey: PublicKey,
+        secureRandom: SecureRandom = SecureRandom()
+    ): String = encrypt(plaintext.toByteArray(Charsets.UTF_8), publicKeyToRawBytes(recipientPublicKey), DEFAULT_MIN_FLOOR, secureRandom)
+
+    /**
+     * Encrypts UTF-8 string plaintext into unpadded Base64URL sealed box v2 for an X25519 [PublicKey] recipient with custom floor.
+     */
+    fun encrypt(
+        plaintext: String,
+        recipientPublicKey: PublicKey,
+        minFloor: Int,
+        secureRandom: SecureRandom = SecureRandom()
+    ): String = encrypt(plaintext.toByteArray(Charsets.UTF_8), publicKeyToRawBytes(recipientPublicKey), minFloor, secureRandom)
+
+    /**
      * Decrypts an unpadded Base64URL sealed box v2 ciphertext.
      *
      * @param sealedBoxBase64 Unpadded Base64URL string of at least 166 characters.

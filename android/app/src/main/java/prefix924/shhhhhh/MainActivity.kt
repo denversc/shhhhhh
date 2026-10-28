@@ -38,6 +38,9 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
@@ -55,6 +58,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -88,8 +93,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.security.PublicKey
 import java.util.Base64
 import kotlinx.coroutines.launch
 import prefix924.shhhhhh.crypto.CryptoEngine
@@ -97,6 +104,7 @@ import prefix924.shhhhhh.crypto.CryptoKeyPair
 import prefix924.shhhhhh.crypto.DecryptResult
 import prefix924.shhhhhh.storage.AndroidAppStorage
 import prefix924.shhhhhh.storage.AppStorage
+import prefix924.shhhhhh.storage.ContactRecord
 import prefix924.shhhhhh.ui.theme.ShhhhhhTheme
 
 enum class EncryptButtonState {
@@ -214,6 +222,42 @@ internal fun copyPublicKeyToClipboard(
     return publicKeyBase64Url
 }
 
+internal val PUBLIC_KEY_REGEX = Regex("""(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])""")
+
+/**
+ * Validates whether the given string is a valid 43-character Base64URL-encoded 32-byte X25519 public key.
+ *
+ * @param publicKeyBase64Url The candidate string to validate.
+ * @return True if [publicKeyBase64Url] is exactly 43 Base64URL characters and decodes to a valid X25519 public key.
+ */
+internal fun validatePublicKey(publicKeyBase64Url: String): Boolean {
+    if (publicKeyBase64Url.length != 43) return false
+    return try {
+        val rawBytes = CryptoEngine.decodePublicKeyBase64Url(publicKeyBase64Url)
+        if (rawBytes.size != CryptoEngine.KEY_SIZE_BYTES) return false
+        val canonical = CryptoEngine.encodePublicKeyBase64Url(rawBytes)
+        if (canonical != publicKeyBase64Url) return false
+        CryptoEngine.rawBytesToPublicKey(rawBytes)
+        true
+    } catch (_: Exception) {
+        false
+    }
+}
+
+/**
+ * Scans [input] text to find and extract a valid 43-character Base64URL X25519 public key,
+ * ignoring surrounding conversational text, punctuation, or whitespace.
+ *
+ * @param input Raw text entered or pasted by the user.
+ * @return The first valid 43-character Base64URL public key found, or null if none detected.
+ */
+internal fun extractPublicKey(input: String): String? {
+    if (input.isBlank()) return null
+    return PUBLIC_KEY_REGEX.findAll(input)
+        .map { it.value }
+        .firstOrNull { validatePublicKey(it) }
+}
+
 class MainActivity : ComponentActivity() {
     private val appStorage: AppStorage by lazy {
         AndroidAppStorage.create(applicationContext)
@@ -242,7 +286,7 @@ class MainActivity : ComponentActivity() {
                 ) { completed ->
                     val keyPair = userKeyPair
                     if (completed && keyPair != null) {
-                        MainScreen(userKeyPair = keyPair)
+                        MainScreen(userKeyPair = keyPair, storage = appStorage)
                     } else {
                         OnboardingScreen(
                             onComplete = { kp ->
@@ -261,7 +305,10 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun MainScreen(userKeyPair: CryptoKeyPair) {
+fun MainScreen(
+    userKeyPair: CryptoKeyPair,
+    storage: AppStorage = AndroidAppStorage.create(LocalContext.current)
+) {
     val context = LocalContext.current
     val view = LocalView.current
     val focusManager = LocalFocusManager.current
@@ -279,8 +326,10 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
     var decryptState by remember { mutableStateOf(DecryptButtonState.DECRYPT) }
     var overlayError by remember { mutableStateOf<DecryptError?>(null) }
     var dialogError by remember { mutableStateOf<DecryptError?>(null) }
-    var selectedContact by remember { mutableStateOf("Myself (This Device)") }
+    var contacts by remember { mutableStateOf(storage.getContacts()) }
+    var selectedContact by remember { mutableStateOf<ContactRecord?>(null) }
     var showContactSheet by remember { mutableStateOf(false) }
+    var showAddContactDialog by remember { mutableStateOf(false) }
     var decryptedSecrets by remember { mutableStateOf<List<String>>(emptyList()) }
     var secretSpans by remember { mutableStateOf<List<SecretSpan>>(emptyList()) }
     var showSecretPickerSheet by remember { mutableStateOf(false) }
@@ -542,9 +591,12 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
                             overlayError = null
                             dialogError = null
                             if (encryptState == EncryptButtonState.ENCRYPT) {
-                                val recipientPublicKey = when (selectedContact) {
-                                    "Myself (This Device)" -> userKeyPair.publicKey
-                                    else -> userKeyPair.publicKey
+                                val currentRecipient = selectedContact
+                                val recipientPublicKey: PublicKey = if (currentRecipient == null) {
+                                    CryptoEngine.rawBytesToPublicKey(userKeyPair.publicKey)
+                                } else {
+                                    val rawBytes = CryptoEngine.decodePublicKeyBase64Url(currentRecipient.publicKeyBase64Url)
+                                    CryptoEngine.rawBytesToPublicKey(rawBytes)
                                 }
                                 val ciphertext = CryptoEngine.encrypt(
                                     plaintext = text,
@@ -701,7 +753,10 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
                         shape = RoundedCornerShape(10.dp)
                     )
                     .combinedClickable(
-                        onClick = { showContactSheet = true }
+                        onClick = {
+                            contacts = storage.getContacts()
+                            showContactSheet = true
+                        }
                     )
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -722,7 +777,7 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = selectedContact,
+                        text = selectedContact?.name ?: "Myself (This Device)",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium
                     )
@@ -759,6 +814,13 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
             ContactSelectionSheet(
                 userKeyPair = userKeyPair,
                 selectedContact = selectedContact,
+                contacts = contacts,
+                onSelectContact = { contact ->
+                    selectedContact = contact
+                },
+                onOpenAddContact = {
+                    showAddContactDialog = true
+                },
                 onDismissRequest = { showContactSheet = false },
                 onCopyPublicKey = {
                     copyPublicKeyToClipboard(
@@ -774,6 +836,24 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
                     view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
                 },
                 sheetSnackbarHostState = sheetSnackbarHostState
+            )
+        }
+
+        // Add Contact Modal Form (Screen 7)
+        if (showAddContactDialog) {
+            AddContactDialog(
+                onDismissRequest = { showAddContactDialog = false },
+                onSaveContact = { newContact ->
+                    storage.saveContact(newContact)
+                    contacts = storage.getContacts()
+                    selectedContact = newContact
+                    showAddContactDialog = false
+                    showContactSheet = false
+                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                    scope.launch {
+                        snackbarHostState.showSnackbar("Added contact: ${newContact.name}")
+                    }
+                }
             )
         }
 
@@ -799,7 +879,10 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
 @Composable
 fun ContactSelectionSheet(
     userKeyPair: CryptoKeyPair,
-    selectedContact: String,
+    selectedContact: ContactRecord?,
+    contacts: List<ContactRecord>,
+    onSelectContact: (ContactRecord?) -> Unit,
+    onOpenAddContact: () -> Unit,
     onDismissRequest: () -> Unit,
     onCopyPublicKey: () -> Unit,
     modifier: Modifier = Modifier,
@@ -845,11 +928,121 @@ fun ContactSelectionSheet(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
-                    Text(
-                        text = "Selected: $selectedContact",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+
+                    // "Myself (This Device)" Item
+                    Surface(
+                        onClick = {
+                            onSelectContact(null)
+                            onDismissRequest()
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (selectedContact == null)
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                        else
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+                        border = BorderStroke(
+                            width = 1.dp,
+                            color = if (selectedContact == null)
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                            else
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (selectedContact == null) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Selected",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            } else {
+                                Spacer(modifier = Modifier.size(20.dp))
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "Myself (This Device)",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = if (selectedContact == null) FontWeight.SemiBold else FontWeight.Normal,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+
+                    // Saved Contacts Items
+                    contacts.forEach { contact ->
+                        val isSelected = selectedContact?.id == contact.id
+                        Surface(
+                            onClick = {
+                                onSelectContact(contact)
+                                onDismissRequest()
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected)
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                            else
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+                            border = BorderStroke(
+                                width = 1.dp,
+                                color = if (isSelected)
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                else
+                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Selected",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                } else {
+                                    Spacer(modifier = Modifier.size(20.dp))
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = contact.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // [ + Add New Contact ] Button
+                    OutlinedButton(
+                        onClick = onOpenAddContact,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Add New Contact",
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -871,6 +1064,187 @@ fun ContactSelectionSheet(
             )
         }
     }
+}
+
+/**
+ * Backward compatibility overload for [ContactSelectionSheet] with string selectedContact.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ContactSelectionSheet(
+    userKeyPair: CryptoKeyPair,
+    selectedContact: String,
+    onDismissRequest: () -> Unit,
+    onCopyPublicKey: () -> Unit,
+    modifier: Modifier = Modifier,
+    sheetSnackbarHostState: SnackbarHostState = remember { SnackbarHostState() }
+) = ContactSelectionSheet(
+    userKeyPair = userKeyPair,
+    selectedContact = null,
+    contacts = emptyList(),
+    onSelectContact = {},
+    onOpenAddContact = {},
+    onDismissRequest = onDismissRequest,
+    onCopyPublicKey = onCopyPublicKey,
+    modifier = modifier,
+    sheetSnackbarHostState = sheetSnackbarHostState
+)
+
+@Composable
+fun AddContactDialog(
+    onDismissRequest: () -> Unit,
+    onSaveContact: (ContactRecord) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val clipboardManager = remember {
+        context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    }
+    var name by remember { mutableStateOf("") }
+    var publicKeyInput by remember { mutableStateOf("") }
+    val extractedKey = remember(publicKeyInput) { extractPublicKey(publicKeyInput) }
+    val isFormValid = name.isNotBlank() && extractedKey != null
+
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        title = {
+            Text(
+                text = "Add New Contact",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Contact Name") },
+                    placeholder = { Text("e.g. Wife, Alice") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = publicKeyInput,
+                    onValueChange = { publicKeyInput = it },
+                    label = { Text("Public Key") },
+                    placeholder = { Text("Pasted text or key...") },
+                    minLines = 2,
+                    maxLines = 4,
+                    modifier = Modifier.fillMaxWidth(),
+                    isError = publicKeyInput.isNotBlank() && extractedKey == null
+                )
+
+                OutlinedButton(
+                    onClick = {
+                        val clipText = getClipboardText(context, clipboardManager)
+                        if (clipText != null) {
+                            publicKeyInput = clipText
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentPaste,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Paste from Clipboard")
+                }
+
+                // Smart Key Extraction feedback
+                when {
+                    extractedKey != null -> {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFF2E7D32).copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, Color(0xFF2E7D32).copy(alpha = 0.3f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = Color(0xFF2E7D32),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "Valid key detected",
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 12.sp,
+                                        color = Color(0xFF2E7D32)
+                                    )
+                                    Text(
+                                        text = extractedKey,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF2E7D32),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    publicKeyInput.isNotBlank() -> {
+                        Text(
+                            text = "No valid 43-character public key detected",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    else -> {
+                        Text(
+                            text = "Smart extractor automatically detects and extracts the 43-character key",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val key = extractedKey
+                    if (key != null && name.isNotBlank()) {
+                        onSaveContact(
+                            ContactRecord(
+                                name = name.trim(),
+                                publicKeyBase64Url = key
+                            )
+                        )
+                    }
+                },
+                enabled = isFormValid,
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismissRequest,
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("Cancel")
+            }
+        },
+        modifier = modifier
+    )
 }
 
 @Composable
