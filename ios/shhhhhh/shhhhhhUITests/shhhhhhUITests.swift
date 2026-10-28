@@ -89,6 +89,104 @@ final class shhhhhhUITests: XCTestCase {
 
         let copySecretButton = app.buttons["Copy Secret"]
         XCTAssertTrue(copySecretButton.waitForExistence(timeout: 5.0))
+
+        // 1. Single-secret 1-tap copy
+        copySecretButton.tap()
+        let copiedSecretBanner = app.staticTexts["Copied secret: SecretMeetingAtNoon"]
+        XCTAssertTrue(copiedSecretBanner.waitForExistence(timeout: 3.0))
+
+        // 2. Long-press [Copy Secret] copies full verbatim message
+        copySecretButton.press(forDuration: 0.6)
+        let copiedFullBanner = app.staticTexts["Copied full message"]
+        XCTAssertTrue(copiedFullBanner.waitForExistence(timeout: 3.0))
+
+        // 3. Directly tapping secret span in text box copies secret
+        let spanCoordinate = mainEditor.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.05))
+        spanCoordinate.tap()
+        XCTAssertTrue(copiedSecretBanner.waitForExistence(timeout: 3.0))
+
+        // 4. Typing text clears secret spans and reverts button back to Decrypt
+        mainEditor.tap()
+        mainEditor.typeText(" editing")
+        let revertedDecryptButton = app.buttons["Decrypt"]
+        XCTAssertTrue(revertedDecryptButton.waitForExistence(timeout: 3.0))
+    }
+
+    @MainActor
+    func testMultiSecretSelectionSheetFlow() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        // Restore known deterministic backup key
+        let restoreButton = app.buttons["restore_backup_button"]
+        XCTAssertTrue(restoreButton.waitForExistence(timeout: 5.0))
+        restoreButton.tap()
+
+        let textEditor = app.textViews["restore_text_editor"]
+        XCTAssertTrue(textEditor.waitForExistence(timeout: 5.0))
+        textEditor.tap()
+        textEditor.typeText("multi-secret-deterministic-test-key")
+
+        let confirmRestoreButton = app.buttons["confirm_restore_button"]
+        confirmRestoreButton.tap()
+
+        let mainEditor = app.textViews["main_text_editor"]
+        XCTAssertTrue(mainEditor.waitForExistence(timeout: 5.0))
+
+        // Encrypt secret A
+        mainEditor.tap()
+        mainEditor.typeText("SecretAlpha")
+        let encryptButton = app.buttons["Encrypt"]
+        encryptButton.tap()
+        let copyCiphertextButton = app.buttons["Copy Ciphertext"]
+        XCTAssertTrue(copyCiphertextButton.waitForExistence(timeout: 5.0))
+        guard let ctA = mainEditor.value as? String, !ctA.isEmpty else {
+            XCTFail("Failed to retrieve ciphertext A")
+            return
+        }
+
+        // Clear and encrypt secret B
+        app.buttons["Clear"].tap()
+        mainEditor.tap()
+        mainEditor.typeText("SecretBeta")
+        app.buttons["Encrypt"].tap()
+        XCTAssertTrue(copyCiphertextButton.waitForExistence(timeout: 5.0))
+        guard let ctB = mainEditor.value as? String, !ctB.isEmpty else {
+            XCTFail("Failed to retrieve ciphertext B")
+            return
+        }
+
+        // Clear and assemble message with both ciphertexts
+        app.buttons["Clear"].tap()
+        mainEditor.tap()
+        mainEditor.typeText("One: " + ctA + " Two: " + ctB)
+
+        // Decrypt
+        app.buttons["Decrypt"].tap()
+
+        let copySecretButton = app.buttons["Copy Secret"]
+        XCTAssertTrue(copySecretButton.waitForExistence(timeout: 5.0))
+
+        // Tapping [Copy Secret] with multiple secrets opens the picker sheet
+        copySecretButton.tap()
+
+        let sheetTitle = app.staticTexts["Select Secret to Copy"]
+        XCTAssertTrue(sheetTitle.waitForExistence(timeout: 5.0))
+
+        let firstItem = app.buttons["secret_picker_item_0"]
+        XCTAssertTrue(firstItem.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(app.staticTexts["SecretAlpha"].exists)
+        XCTAssertTrue(app.staticTexts["SecretBeta"].exists)
+
+        // Select the second secret from the picker sheet
+        let secondItem = app.buttons["secret_picker_item_1"]
+        XCTAssertTrue(secondItem.exists)
+        secondItem.tap()
+
+        // Sheet is dismissed and feedback banner shows the selected secret
+        let copiedBetaBanner = app.staticTexts["Copied secret: SecretBeta"]
+        XCTAssertTrue(copiedBetaBanner.waitForExistence(timeout: 3.0))
+        XCTAssertFalse(sheetTitle.exists)
     }
 
     @MainActor

@@ -39,15 +39,18 @@ struct ContentView: View {
     @State private var hasCompletedOnboarding: Bool = false
     @State private var text: String = ""
     @State private var decryptedSecrets: [String] = []
+    @State private var secretSpans: [SecretSpan] = []
     @State private var encryptState: EncryptButtonState = .encrypt
     @State private var decryptState: DecryptButtonState = .decrypt
     @State private var overlayError: DecryptError? = nil
     @State private var alertError: DecryptError? = nil
     @State private var selectedContact: String = "Myself (This Device)"
     @State private var showContactSheet: Bool = false
+    @State private var showSecretPickerSheet: Bool = false
     @State private var copiedBannerText: String? = nil
     @State private var programmaticTextTarget: String? = nil
     @State private var isDecryptPressed: Bool = false
+    @State private var longPressTriggered: Bool = false
 
     init(userKeyPair: CryptoKeyPair? = nil, hasCompletedOnboarding: Bool = false) {
         _userKeyPair = State(initialValue: userKeyPair)
@@ -115,16 +118,20 @@ struct ContentView: View {
                                 .allowsHitTesting(false)
                         }
 
-                        TextEditor(text: $text)
-                            .font(.body)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .scrollContentBackground(.hidden)
-                            .background(Color.clear)
-                            .accessibilityIdentifier("main_text_editor")
-                            .onChange(of: text) { _, newValue in
+                        SecretTextEditor(
+                            text: $text,
+                            spans: secretSpans,
+                            isHighlightActive: decryptState == .copySecret,
+                            onSecretTapped: { secret in
+                                UIPasteboard.general.string = secret
+                                showCopiedFeedback("Copied secret: \(secret)")
+                            },
+                            onTextChanged: { newValue in
                                 handleTextChange(newValue)
                             }
+                        )
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
 
                         if let currentOverlayError = overlayError {
                             ErrorOverlay(
@@ -165,7 +172,7 @@ struct ContentView: View {
 
                     // Decrypt / Morphing Button (Supports Tap and Long-Press; mutually exclusive)
                     HStack(spacing: 6) {
-                        Image(systemName: decryptState == .decrypt ? "lock.open.fill" : "key.fill")
+                        Image(systemName: decryptState == .decrypt ? "lock.open.fill" : "doc.on.doc.fill")
                         Text(decryptState == .decrypt ? "Decrypt" : "Copy Secret")
                             .fontWeight(.semibold)
                     }
@@ -182,6 +189,7 @@ struct ContentView: View {
                         minimumDuration: 0.5,
                         perform: {
                             if decryptState == .copySecret {
+                                longPressTriggered = true
                                 handleDecryptLongPress()
                             } else {
                                 handleDecryptTap()
@@ -189,10 +197,15 @@ struct ContentView: View {
                         },
                         onPressingChanged: { isPressing in
                             isDecryptPressed = isPressing
+                            if isPressing {
+                                longPressTriggered = false
+                            }
                         }
                     )
                     .onTapGesture {
-                        handleDecryptTap()
+                        if !longPressTriggered {
+                            handleDecryptTap()
+                        }
                     }
                 }
 
@@ -262,6 +275,16 @@ struct ContentView: View {
                     .navigationBarTitleDisplayMode(.inline)
                 }
             }
+            .sheet(isPresented: $showSecretPickerSheet) {
+                SecretPickerSheet(
+                    secrets: decryptedSecrets,
+                    onSelectSecret: { secret in
+                        showSecretPickerSheet = false
+                        UIPasteboard.general.string = secret
+                        showCopiedFeedback("Copied secret: \(secret)")
+                    }
+                )
+            }
             .alert(
                 "Decryption Failed",
                 isPresented: Binding(
@@ -294,6 +317,8 @@ struct ContentView: View {
         programmaticTextTarget = nil
         text = ""
         decryptedSecrets = []
+        secretSpans = []
+        showSecretPickerSheet = false
         encryptState = .encrypt
         decryptState = .decrypt
         overlayError = nil
@@ -320,6 +345,8 @@ struct ContentView: View {
         if decryptState == .copySecret {
             decryptState = .decrypt
             decryptedSecrets = []
+            secretSpans = []
+            showSecretPickerSheet = false
         }
     }
 
@@ -333,6 +360,9 @@ struct ContentView: View {
                 setProgrammaticText(ciphertext)
                 encryptState = .copyCiphertext
                 decryptState = .decrypt
+                decryptedSecrets = []
+                secretSpans = []
+                showSecretPickerSheet = false
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             } catch {
                 // Encryption failure or invalid input
@@ -352,16 +382,23 @@ struct ContentView: View {
             case .noCandidates:
                 decryptState = .decrypt
                 encryptState = .encrypt
+                decryptedSecrets = []
+                secretSpans = []
+                showSecretPickerSheet = false
                 overlayError = .noCandidates
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
             case .authFailed:
                 decryptState = .decrypt
                 encryptState = .encrypt
+                decryptedSecrets = []
+                secretSpans = []
+                showSecretPickerSheet = false
                 overlayError = .authFailed
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
-            case .success(let updatedText, let secrets):
+            case .success(let updatedText, let secrets, let ranges):
                 setProgrammaticText(updatedText)
                 decryptedSecrets = secrets
+                secretSpans = findSecretSpans(text: updatedText, secrets: secrets, explicitRanges: ranges)
                 decryptState = .copySecret
                 encryptState = .encrypt
                 overlayError = nil
@@ -369,10 +406,18 @@ struct ContentView: View {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             }
         } else {
-            // Tapping [Copy Secret] copies the first secret (or single secret).
-            let secretToCopy = decryptedSecrets.first ?? ""
-            UIPasteboard.general.string = secretToCopy
-            showCopiedFeedback("Copied secret: \(secretToCopy)")
+            switch resolveCopySecretAction(decryptedSecrets) {
+            case .copySingle(let secret):
+                UIPasteboard.general.string = secret
+                showCopiedFeedback("Copied secret: \(secret)")
+            case .showPicker:
+                showSecretPickerSheet = true
+            case .none:
+                if !text.isEmpty {
+                    UIPasteboard.general.string = text
+                    showCopiedFeedback("Copied secret: \(text)")
+                }
+            }
         }
     }
 
@@ -383,7 +428,7 @@ struct ContentView: View {
     }
 
     private func showCopiedFeedback(_ message: String) {
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         withAnimation {
             copiedBannerText = message
         }
@@ -394,6 +439,59 @@ struct ContentView: View {
                 }
             }
         }
+    }
+}
+
+struct SecretPickerSheet: View {
+    let secrets: [String]
+    let onSelectSecret: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 12) {
+                    ForEach(Array(secrets.enumerated()), id: \.offset) { index, secret in
+                        Button(action: {
+                            onSelectSecret(secret)
+                        }) {
+                            HStack {
+                                Text(secret)
+                                    .font(.body)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.primary)
+                                    .lineLimit(3)
+                                    .multilineTextAlignment(.leading)
+                                Spacer()
+                                Image(systemName: "doc.on.doc")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(.blue)
+                            }
+                            .padding(16)
+                            .background(Color(uiColor: .secondarySystemBackground))
+                            .cornerRadius(12)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color(uiColor: .separator), lineWidth: 1)
+                            )
+                        }
+                        .accessibilityIdentifier("secret_picker_item_\(index)")
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+            }
+            .navigationTitle("Select Secret to Copy")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 

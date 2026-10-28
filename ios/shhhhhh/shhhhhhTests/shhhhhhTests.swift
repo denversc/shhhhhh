@@ -8,6 +8,7 @@
 import CryptoKit
 import Foundation
 import Testing
+import UIKit
 @testable import shhhhhh
 
 struct shhhhhhTests {
@@ -248,6 +249,14 @@ struct shhhhhhTests {
             text: "Here is the bank password: \(secret) let me know when you are done!",
             secrets: [secret]
         ))
+
+        guard case .success(let text, let secrets, let ranges) = result else {
+            Issue.record("Expected .success")
+            return
+        }
+        #expect(secrets.count == 1)
+        #expect(ranges.count == 1)
+        #expect(String(text[ranges[0]]) == secret)
     }
 
     @Test func testCandidateScanningMultipleCandidatesInPlace() throws {
@@ -265,6 +274,15 @@ struct shhhhhhTests {
             text: "Hello! Wifi is \(secret1) and vault PIN is \(secret2). Enjoy!",
             secrets: [secret1, secret2]
         ))
+
+        guard case .success(let text, let secrets, let ranges) = result else {
+            Issue.record("Expected .success")
+            return
+        }
+        #expect(secrets.count == 2)
+        #expect(ranges.count == 2)
+        #expect(String(text[ranges[0]]) == secret1)
+        #expect(String(text[ranges[1]]) == secret2)
     }
 
     @Test func testCandidateScanningMixedValidAndInvalidCandidates() throws {
@@ -396,6 +414,81 @@ struct shhhhhhTests {
         #expect(hexString.count == 64)
         let restoredFromHex = try restoreKeyPairFromBackup(hexString)
         #expect(restoredFromHex == originalKeyPair)
+    }
+
+    // MARK: - SecretSpan and CopySecretAction Tests
+
+    @Test func testResolveCopySecretActionEmptySingleAndMulti() throws {
+        #expect(resolveCopySecretAction([]) == .none)
+        #expect(resolveCopySecretAction(["SoloSecret"]) == .copySingle("SoloSecret"))
+        #expect(resolveCopySecretAction(["SecretOne", "SecretTwo"]) == .showPicker(["SecretOne", "SecretTwo"]))
+        #expect(resolveCopySecretAction(["A", "B", "C"]) == .showPicker(["A", "B", "C"]))
+    }
+
+    @Test func testFindSecretSpansWithExplicitRanges() throws {
+        let text = "Here is secret one: Alpha and secret two: Beta -- done!"
+        let secrets = ["Alpha", "Beta"]
+
+        let range1 = text.range(of: "Alpha")!
+        let range2 = text.range(of: "Beta")!
+
+        let spans = findSecretSpans(text: text, secrets: secrets, explicitRanges: [range1, range2])
+        #expect(spans.count == 2)
+        #expect(spans[0].secret == "Alpha")
+        #expect(spans[0].range == range1)
+        #expect(String(text[spans[0].range]) == "Alpha")
+
+        #expect(spans[1].secret == "Beta")
+        #expect(spans[1].range == range2)
+        #expect(String(text[spans[1].range]) == "Beta")
+    }
+
+    @Test func testFindSecretSpansFallbackOnInvalidExplicitRanges() throws {
+        let text = "First is Foo and second is Bar"
+        let secrets = ["Foo", "Bar"]
+
+        // Give a bogus range for the first secret
+        let bogusRange = text.startIndex..<text.index(text.startIndex, offsetBy: 3) // "Fir" != "Foo"
+        let range2 = text.range(of: "Bar")!
+
+        // Should fall back to sequential scanning and find both correctly
+        let spans = findSecretSpans(text: text, secrets: secrets, explicitRanges: [bogusRange, range2])
+        #expect(spans.count == 2)
+        #expect(spans[0].secret == "Foo")
+        #expect(String(text[spans[0].range]) == "Foo")
+        #expect(spans[1].secret == "Bar")
+        #expect(String(text[spans[1].range]) == "Bar")
+    }
+
+    @Test func testFindSecretSpansWithoutExplicitRanges() throws {
+        let text = "Pass: Secret123 and PIN: 4567"
+        let secrets = ["Secret123", "4567"]
+
+        let spans = findSecretSpans(text: text, secrets: secrets)
+        #expect(spans.count == 2)
+        #expect(spans[0].secret == "Secret123")
+        #expect(String(text[spans[0].range]) == "Secret123")
+        #expect(spans[1].secret == "4567")
+        #expect(String(text[spans[1].range]) == "4567")
+    }
+
+    @Test func testFindSecretSpansEmptyInputs() throws {
+        #expect(findSecretSpans(text: "", secrets: ["A"]).isEmpty)
+        #expect(findSecretSpans(text: "Some text", secrets: []).isEmpty)
+    }
+
+    @Test func testBuildSecretAttributedStringAppliesAttributes() throws {
+        let text = "Hidden secret in plain text"
+        let secret = "secret"
+        let range = text.range(of: secret)!
+        let span = SecretSpan(secret: secret, range: range, in: text)
+
+        let attr = buildSecretAttributedString(text: text, spans: [span])
+        #expect(attr.string == text)
+
+        var effectiveRange = NSRange(location: 0, length: 0)
+        let bg = attr.attribute(.backgroundColor, at: span.nsRange.location, effectiveRange: &effectiveRange)
+        #expect(bg != nil)
     }
 
     // MARK: - Test Helpers

@@ -62,7 +62,42 @@ public enum DecryptResult: Equatable {
     /// - Parameters:
     ///   - text: The input text with valid ciphertexts replaced in-place by their decrypted plaintexts.
     ///   - secrets: All decrypted secret strings in their order of appearance in the text.
-    case success(text: String, secrets: [String])
+    ///   - ranges: Exact character ranges of each decrypted secret within the updated text.
+    case success(text: String, secrets: [String], ranges: [Range<String.Index>] = [])
+
+    public var text: String? {
+        if case .success(let text, _, _) = self { return text }
+        return nil
+    }
+
+    public var secrets: [String]? {
+        if case .success(_, let secrets, _) = self { return secrets }
+        return nil
+    }
+
+    public var ranges: [Range<String.Index>]? {
+        if case .success(_, _, let ranges) = self { return ranges }
+        return nil
+    }
+
+    public static func == (lhs: DecryptResult, rhs: DecryptResult) -> Bool {
+        switch (lhs, rhs) {
+        case (.noCandidates, .noCandidates):
+            return true
+        case (.authFailed, .authFailed):
+            return true
+        case let (.success(lText, lSecrets, lRanges), .success(rText, rSecrets, rRanges)):
+            if lText != rText || lSecrets != rSecrets {
+                return false
+            }
+            if !lRanges.isEmpty && !rRanges.isEmpty {
+                return lRanges == rRanges
+            }
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 /// Errors thrown by CryptoEngine operations.
@@ -417,15 +452,27 @@ public enum CryptoEngine {
         }
 
         var updatedText = ""
+        var integerRanges: [Range<Int>] = []
         var currentIndex = inputText.startIndex
         for item in successfulMatches {
-            updatedText.append(contentsOf: inputText[currentIndex..<item.range.lowerBound])
+            let prefix = inputText[currentIndex..<item.range.lowerBound]
+            updatedText.append(contentsOf: prefix)
+            let startOffset = updatedText.count
             updatedText.append(item.decrypted)
+            let endOffset = updatedText.count
+            integerRanges.append(startOffset..<endOffset)
             currentIndex = item.range.upperBound
         }
         updatedText.append(contentsOf: inputText[currentIndex..<inputText.endIndex])
 
-        return .success(text: updatedText, secrets: secrets)
+        var stringRanges: [Range<String.Index>] = []
+        for intRange in integerRanges {
+            let lower = updatedText.index(updatedText.startIndex, offsetBy: intRange.lowerBound)
+            let upper = updatedText.index(updatedText.startIndex, offsetBy: intRange.upperBound)
+            stringRanges.append(lower..<upper)
+        }
+
+        return .success(text: updatedText, secrets: secrets, ranges: stringRanges)
     }
 
     /// Scans input text for Base64URL ciphertext candidates using 32-byte raw recipient private key.
