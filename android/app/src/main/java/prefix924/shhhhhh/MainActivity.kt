@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DividerDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -83,6 +84,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
@@ -175,6 +177,43 @@ internal fun getClipboardText(context: Context, clipboardManager: ClipboardManag
     return if (!itemText.isNullOrEmpty()) itemText else null
 }
 
+/**
+ * Copies the raw Base64URL public key from [keyPair] to the clipboard without extra text or template wrappers.
+ *
+ * @param clipboardManager System clipboard manager.
+ * @param keyPair The user's key pair whose public key should be copied.
+ * @param onFeedback Callback invoked with the feedback message to display to the user.
+ * @return The raw 43-character Base64URL string copied to the clipboard.
+ */
+internal fun copyPublicKeyToClipboard(
+    clipboardManager: ClipboardManager,
+    keyPair: CryptoKeyPair,
+    onFeedback: (String) -> Unit = {}
+): String = copyPublicKeyToClipboard(
+    clipboardManager = clipboardManager,
+    publicKeyBase64Url = keyPair.publicKeyBase64Url,
+    onFeedback = onFeedback
+)
+
+/**
+ * Copies the raw Base64URL public key string to the clipboard without extra text or template wrappers.
+ *
+ * @param clipboardManager System clipboard manager.
+ * @param publicKeyBase64Url The raw 43-character Base64URL public key string.
+ * @param onFeedback Callback invoked with the feedback message to display to the user.
+ * @return The raw Base64URL string copied to the clipboard.
+ */
+internal fun copyPublicKeyToClipboard(
+    clipboardManager: ClipboardManager,
+    publicKeyBase64Url: String,
+    onFeedback: (String) -> Unit = {}
+): String {
+    val clip = ClipData.newPlainText("shhhhhh_public_key", publicKeyBase64Url)
+    clipboardManager.setPrimaryClip(clip)
+    onFeedback("Copied public key")
+    return publicKeyBase64Url
+}
+
 class MainActivity : ComponentActivity() {
     private val appStorage: AppStorage by lazy {
         AndroidAppStorage.create(applicationContext)
@@ -231,6 +270,7 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
     }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val sheetSnackbarHostState = remember { SnackbarHostState() }
 
     var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
     val text = textFieldValue.text
@@ -714,34 +754,27 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
             )
         }
 
-        // Contact Sheet Modal Placeholder (Piece 2)
+        // Contact Selection & Management Sheet (Modal)
         if (showContactSheet) {
-            val sheetState = rememberModalBottomSheetState()
-            ModalBottomSheet(
+            ContactSelectionSheet(
+                userKeyPair = userKeyPair,
+                selectedContact = selectedContact,
                 onDismissRequest = { showContactSheet = false },
-                sheetState = sheetState
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Text(
-                        text = "Contact Selection Sheet (Piece 2)",
-                        style = MaterialTheme.typography.titleMedium
+                onCopyPublicKey = {
+                    copyPublicKeyToClipboard(
+                        clipboardManager = clipboardManager,
+                        keyPair = userKeyPair,
+                        onFeedback = { message ->
+                            scope.launch {
+                                snackbarHostState.showSnackbar(message)
+                                sheetSnackbarHostState.showSnackbar(message)
+                            }
+                        }
                     )
-                    Text(
-                        text = "Selected: $selectedContact",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Button(onClick = { showContactSheet = false }) {
-                        Text("Close")
-                    }
-                }
-            }
+                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                },
+                sheetSnackbarHostState = sheetSnackbarHostState
+            )
         }
 
         // Multi-Secret Picker Bottom Sheet
@@ -757,6 +790,147 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
                         "Copied secret: $selectedSecret"
                     )
                 }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ContactSelectionSheet(
+    userKeyPair: CryptoKeyPair,
+    selectedContact: String,
+    onDismissRequest: () -> Unit,
+    onCopyPublicKey: () -> Unit,
+    modifier: Modifier = Modifier,
+    sheetSnackbarHostState: SnackbarHostState = remember { SnackbarHostState() }
+) {
+    val sheetState = rememberModalBottomSheetState()
+    ModalBottomSheet(
+        onDismissRequest = onDismissRequest,
+        sheetState = sheetState,
+        modifier = modifier
+    ) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(top = 8.dp, bottom = 32.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "Contacts & Settings",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                // MY PUBLIC KEY Section
+                MyPublicKeySection(
+                    publicKeyBase64Url = userKeyPair.publicKeyBase64Url,
+                    onCopyPublicKey = onCopyPublicKey
+                )
+
+                HorizontalDivider(color = DividerDefaults.color.copy(alpha = 0.5f))
+
+                // CONTACTS Section / Selection
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "CONTACTS",
+                        style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.sp),
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Selected: $selectedContact",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Button(
+                    onClick = onDismissRequest,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Close")
+                }
+            }
+
+            SnackbarHost(
+                hostState = sheetSnackbarHostState,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 16.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun MyPublicKeySection(
+    publicKeyBase64Url: String,
+    onCopyPublicKey: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            text = "MY PUBLIC KEY",
+            style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.sp),
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            border = BorderStroke(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = publicKeyBase64Url,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(14.dp)
+            )
+        }
+
+        Button(
+            onClick = onCopyPublicKey,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            shape = RoundedCornerShape(10.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF1A73E8),
+                contentColor = Color.White
+            )
+        ) {
+            Icon(
+                imageVector = Icons.Default.ContentCopy,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Copy My Public Key",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold
             )
         }
     }
