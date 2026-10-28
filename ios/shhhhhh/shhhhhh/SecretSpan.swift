@@ -131,10 +131,37 @@ public func buildSecretAttributedString(
     return attributed
 }
 
+/// Computes the new string and updated cursor range when inserting or replacing text.
+/// If `isFocused` is false, appends `insertedText` to the end of `currentText`.
+/// Otherwise, replaces `selectedRange` (or inserts at cursor if collapsed) with `insertedText`.
+public func applyTextInsertion(
+    currentText: String,
+    insertedText: String,
+    selectedRange: NSRange,
+    isFocused: Bool
+) -> (newText: String, newRange: NSRange) {
+    let nsText = currentText as NSString
+    let targetRange: NSRange
+    if isFocused && selectedRange.location != NSNotFound {
+        let clampedLocation = min(selectedRange.location, nsText.length)
+        let clampedLength = min(selectedRange.length, nsText.length - clampedLocation)
+        targetRange = NSRange(location: clampedLocation, length: clampedLength)
+    } else {
+        targetRange = NSRange(location: nsText.length, length: 0)
+    }
+
+    let newText = nsText.replacingCharacters(in: targetRange, with: insertedText)
+    let newCursorLocation = targetRange.location + (insertedText as NSString).length
+    let newRange = NSRange(location: newCursorLocation, length: 0)
+    return (newText, newRange)
+}
+
 /// UIKit-backed multi-line text editor supporting inline tappable secret spans
 /// and seamless editing / typing fallback.
 public struct SecretTextEditor: UIViewRepresentable {
     @Binding public var text: String
+    @Binding public var selectedRange: NSRange
+    @Binding public var isFocused: Bool
     public var spans: [SecretSpan]
     public var isHighlightActive: Bool
     public var onSecretTapped: (String) -> Void
@@ -142,12 +169,16 @@ public struct SecretTextEditor: UIViewRepresentable {
 
     public init(
         text: Binding<String>,
+        selectedRange: Binding<NSRange> = .constant(NSRange(location: 0, length: 0)),
+        isFocused: Binding<Bool> = .constant(false),
         spans: [SecretSpan],
         isHighlightActive: Bool,
         onSecretTapped: @escaping (String) -> Void,
         onTextChanged: @escaping (String) -> Void
     ) {
         self._text = text
+        self._selectedRange = selectedRange
+        self._isFocused = isFocused
         self.spans = spans
         self.isHighlightActive = isHighlightActive
         self.onSecretTapped = onSecretTapped
@@ -189,18 +220,14 @@ public struct SecretTextEditor: UIViewRepresentable {
         if isHighlightActive && !spans.isEmpty {
             let attributed = buildSecretAttributedString(text: text, spans: spans)
             if uiView.attributedText != attributed {
-                let selected = uiView.selectedRange
                 uiView.attributedText = attributed
-                uiView.selectedRange = selected
             }
         } else {
             if uiView.text != text {
-                let selected = uiView.selectedRange
                 uiView.text = text
                 uiView.font = .systemFont(ofSize: 16)
                 uiView.textColor = .label
-                uiView.selectedRange = selected
-            } else if uiView.attributedText.length > 0 {
+            } else if uiView.attributedText.length > 0 && !isHighlightActive {
                 // Ensure plain styling without span highlight remnants
                 let plain = NSAttributedString(
                     string: text,
@@ -210,10 +237,18 @@ public struct SecretTextEditor: UIViewRepresentable {
                     ]
                 )
                 if uiView.attributedText != plain {
-                    let selected = uiView.selectedRange
                     uiView.attributedText = plain
-                    uiView.selectedRange = selected
                 }
+            }
+        }
+
+        let textLength = (text as NSString).length
+        if selectedRange.location != NSNotFound {
+            let clampedLocation = min(selectedRange.location, textLength)
+            let clampedLength = min(selectedRange.length, textLength - clampedLocation)
+            let validRange = NSRange(location: clampedLocation, length: clampedLength)
+            if uiView.selectedRange != validRange {
+                uiView.selectedRange = validRange
             }
         }
     }
@@ -227,10 +262,34 @@ public struct SecretTextEditor: UIViewRepresentable {
             self.parent = parent
         }
 
+        public func textViewDidBeginEditing(_ textView: UITextView) {
+            if !parent.isFocused {
+                parent.isFocused = true
+            }
+            if parent.selectedRange != textView.selectedRange {
+                parent.selectedRange = textView.selectedRange
+            }
+        }
+
+        public func textViewDidEndEditing(_ textView: UITextView) {
+            if parent.isFocused {
+                parent.isFocused = false
+            }
+        }
+
+        public func textViewDidChangeSelection(_ textView: UITextView) {
+            if parent.selectedRange != textView.selectedRange {
+                parent.selectedRange = textView.selectedRange
+            }
+        }
+
         public func textViewDidChange(_ textView: UITextView) {
             let newText = textView.text ?? ""
             if parent.text != newText {
                 parent.text = newText
+            }
+            if parent.selectedRange != textView.selectedRange {
+                parent.selectedRange = textView.selectedRange
             }
             parent.onTextChanged(newText)
         }
