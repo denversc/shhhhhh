@@ -9,11 +9,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,9 +30,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Clear
@@ -66,10 +72,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Base64
@@ -172,6 +182,9 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
     var selectedContact by remember { mutableStateOf("Myself (This Device)") }
     var showContactSheet by remember { mutableStateOf(false) }
     var decryptedSecrets by remember { mutableStateOf<List<String>>(emptyList()) }
+    var secretSpans by remember { mutableStateOf<List<SecretSpan>>(emptyList()) }
+    var showSecretPickerSheet by remember { mutableStateOf(false) }
+    var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
 
     fun copyToClipboard(content: String, label: String, message: String) {
         val clip = ClipData.newPlainText(label, content)
@@ -238,6 +251,8 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
                             overlayError = null
                             dialogError = null
                             decryptedSecrets = emptyList()
+                            secretSpans = emptyList()
+                            showSecretPickerSheet = false
                         }
                     ) {
                         Icon(
@@ -274,10 +289,52 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
                         .weight(1f)
                         .fillMaxWidth()
                 ) {
+                    val highlightColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                    val highlightTextColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    val visualTransformation = remember(decryptState, secretSpans, highlightColor, highlightTextColor) {
+                        if (decryptState == DecryptButtonState.COPY_SECRET && secretSpans.isNotEmpty()) {
+                            SecretHighlightVisualTransformation(
+                                spans = secretSpans,
+                                highlightColor = highlightColor,
+                                textColor = highlightTextColor,
+                                onSecretClick = { secret ->
+                                    copyToClipboard(secret, "shhhhhh_secret", "Copied secret: $secret")
+                                }
+                            )
+                        } else {
+                            VisualTransformation.None
+                        }
+                    }
+
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(14.dp)
+                            .pointerInput(decryptState, secretSpans) {
+                                if (decryptState == DecryptButtonState.COPY_SECRET && secretSpans.isNotEmpty()) {
+                                    awaitEachGesture {
+                                        val down = awaitFirstDown(pass = PointerEventPass.Initial)
+                                        val layout = textLayoutResult ?: return@awaitEachGesture
+                                        val charOffset = layout.getOffsetForPosition(down.position)
+                                        val matchedSpan = secretSpans.firstOrNull { span ->
+                                            charOffset in span.range &&
+                                                layout.getBoundingBox(charOffset).inflate(6f).contains(down.position)
+                                        }
+                                        if (matchedSpan != null) {
+                                            down.consume()
+                                            val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
+                                            if (up != null) {
+                                                up.consume()
+                                                copyToClipboard(
+                                                    matchedSpan.secret,
+                                                    "shhhhhh_secret",
+                                                    "Copied secret: ${matchedSpan.secret}"
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                     ) {
                         if (text.isEmpty()) {
                             Text(
@@ -298,8 +355,11 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
                                 if (decryptState == DecryptButtonState.COPY_SECRET) {
                                     decryptState = DecryptButtonState.DECRYPT
                                     decryptedSecrets = emptyList()
+                                    secretSpans = emptyList()
                                 }
                             },
+                            visualTransformation = visualTransformation,
+                            onTextLayout = { textLayoutResult = it },
                             modifier = Modifier.fillMaxSize(),
                             textStyle = TextStyle(
                                 color = MaterialTheme.colorScheme.onSurface,
@@ -356,6 +416,8 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
                                 encryptState = EncryptButtonState.COPY
                                 decryptState = DecryptButtonState.DECRYPT
                                 decryptedSecrets = emptyList()
+                                secretSpans = emptyList()
+                                showSecretPickerSheet = false
                             } else {
                                 copyToClipboard(text, "shhhhhh_ciphertext", "Copied ciphertext")
                             }
@@ -409,15 +471,20 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
                                     )) {
                                         is DecryptResult.NoCandidates -> {
                                             decryptState = DecryptButtonState.DECRYPT
+                                            decryptedSecrets = emptyList()
+                                            secretSpans = emptyList()
                                             triggerDecryptError(DecryptError.NO_CANDIDATES)
                                         }
                                         is DecryptResult.AuthFailed -> {
                                             decryptState = DecryptButtonState.DECRYPT
+                                            decryptedSecrets = emptyList()
+                                            secretSpans = emptyList()
                                             triggerDecryptError(DecryptError.AUTH_FAILED)
                                         }
                                         is DecryptResult.Success -> {
                                             text = result.text
                                             decryptedSecrets = result.secrets
+                                            secretSpans = findSecretSpans(result.text, result.secrets, result.ranges)
                                             decryptState = DecryptButtonState.COPY_SECRET
                                             encryptState = EncryptButtonState.ENCRYPT
                                             overlayError = null
@@ -426,12 +493,27 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
                                         }
                                     }
                                 } else {
-                                    val secretToCopy = decryptedSecrets.firstOrNull().orEmpty()
-                                    copyToClipboard(
-                                        secretToCopy,
-                                        "shhhhhh_secret",
-                                        "Copied secret: $secretToCopy"
-                                    )
+                                    when (val action = resolveCopySecretAction(decryptedSecrets)) {
+                                        is CopySecretAction.CopySingle -> {
+                                            copyToClipboard(
+                                                action.secret,
+                                                "shhhhhh_secret",
+                                                "Copied secret: ${action.secret}"
+                                            )
+                                        }
+                                        is CopySecretAction.ShowPicker -> {
+                                            showSecretPickerSheet = true
+                                        }
+                                        is CopySecretAction.None -> {
+                                            if (text.isNotEmpty()) {
+                                                copyToClipboard(
+                                                    text,
+                                                    "shhhhhh_secret",
+                                                    "Copied secret: $text"
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             },
                             onLongClick = {
@@ -557,6 +639,89 @@ fun MainScreen(userKeyPair: CryptoKeyPair) {
                     )
                     Button(onClick = { showContactSheet = false }) {
                         Text("Close")
+                    }
+                }
+            }
+        }
+
+        // Multi-Secret Picker Bottom Sheet
+        if (showSecretPickerSheet) {
+            SecretPickerSheet(
+                secrets = decryptedSecrets,
+                onDismissRequest = { showSecretPickerSheet = false },
+                onSelectSecret = { selectedSecret ->
+                    showSecretPickerSheet = false
+                    copyToClipboard(
+                        selectedSecret,
+                        "shhhhhh_secret",
+                        "Copied secret: $selectedSecret"
+                    )
+                }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SecretPickerSheet(
+    secrets: List<String>,
+    onDismissRequest: () -> Unit,
+    onSelectSecret: (String) -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState()
+    ModalBottomSheet(
+        onDismissRequest = onDismissRequest,
+        sheetState = sheetState
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp, top = 8.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = "Select Secret to Copy",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            secrets.forEachIndexed { index, secret ->
+                Surface(
+                    onClick = {
+                        onSelectSecret(secret)
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = secret,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 3
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy secret",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }
