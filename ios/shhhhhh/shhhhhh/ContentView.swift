@@ -40,6 +40,7 @@ enum DecryptError: String, Identifiable {
 }
 
 struct ContentView: View {
+    @State private var hasCompletedOnboarding: Bool = false
     @State private var text: String = ""
     @State private var encryptState: EncryptButtonState = .encrypt
     @State private var decryptState: DecryptButtonState = .decrypt
@@ -52,6 +53,22 @@ struct ContentView: View {
     @State private var isDecryptPressed: Bool = false
 
     var body: some View {
+        Group {
+            if !hasCompletedOnboarding {
+                OnboardingView(onComplete: {
+                    withAnimation(.easeInOut(duration: 0.35)) {
+                        hasCompletedOnboarding = true
+                    }
+                })
+                .transition(.opacity)
+            } else {
+                mainScreen
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    private var mainScreen: some View {
         NavigationStack {
             VStack(spacing: 16) {
                 // Shared Multi-line Text Box with Header Utility Bar
