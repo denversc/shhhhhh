@@ -7,6 +7,7 @@
 
 import CryptoKit
 import Foundation
+import Security
 
 /// Representation of a Curve25519 / X25519 key pair with 32-byte raw keys.
 public struct CryptoKeyPair: Equatable {
@@ -50,7 +51,7 @@ public struct CryptoKeyPair: Equatable {
 
 /// Result of scanning and decrypting text with candidate ciphertext substrings.
 public enum DecryptResult: Equatable {
-    /// No Base64URL string of 80 or more characters was found in the input text.
+    /// No Base64URL string of 166 or more characters was found in the input text.
     case noCandidates
 
     /// One or more ciphertext candidate strings were found, but none could be
@@ -124,23 +125,30 @@ public enum CryptoError: LocalizedError, Equatable {
     }
 }
 
-/// Native sealed box cryptography engine for shhhhhh on iOS.
+/// Native sealed box cryptography engine for shhhhhh on iOS (v2 Floored PADME).
 ///
 /// Implements:
 /// - X25519 Diffie-Hellman key agreement (RFC 7748) via Apple CryptoKit
-/// - HKDF-SHA256 key derivation (RFC 5869)
+/// - HKDF-SHA256 key derivation (RFC 5869) with domain separator "shhhhhh:sealedbox:v2"
 /// - ChaCha20-Poly1305 AEAD authenticated encryption (RFC 8439)
-/// - Sealed Box format: ephemeralPublicKey[32] + nonce[12] + ciphertextWithTag[N + 16]
+/// - Floored PADME length-hiding bucketing (RFC 9543 with minimum floor = 128 bytes)
+/// - Inner framing: [uint16_be length] || plaintext || CSPRNG random padding
+/// - Outer envelope: version(0x02) || ephemeralPublicKey[32] || nonce[12] || ciphertext[B] || tag[16]
+/// - Authenticated Additional Data (AAD): version(0x02) || ephemeralPublicKey[32] || nonce[12] (45 bytes)
 /// - Unpadded Base64URL wire serialization
 public enum CryptoEngine {
+    public static let protocolVersion: UInt8 = 0x02
     public static let keySizeBytes = 32
     public static let nonceSizeBytes = 12
     public static let tagSizeBytes = 16
-    public static let overheadBytes = keySizeBytes + nonceSizeBytes + tagSizeBytes // 60 bytes
-    public static let minCiphertextLengthChars = 80 // 60 bytes in unpadded Base64URL
+    public static let headerSizeBytes = 1 + keySizeBytes + nonceSizeBytes // 45 bytes
+    public static let fixedOverheadBytes = headerSizeBytes + tagSizeBytes // 61 bytes
+    public static let overheadBytes = fixedOverheadBytes // 61 bytes (compatibility alias)
+    public static let minCiphertextLengthChars = 166
+    public static let defaultMinFloor = 128
 
-    public static let domainSeparator = "shhhhhh:sealedbox:v1".data(using: .utf8)!
-    public static let candidateRegex = try! NSRegularExpression(pattern: "[A-Za-z0-9_-]{80,}")
+    public static let domainSeparator = "shhhhhh:sealedbox:v2".data(using: .utf8)!
+    public static let candidateRegex = try! NSRegularExpression(pattern: "[A-Za-z0-9_-]{166,}")
 
     // MARK: - Key Generation & Derivation
 
@@ -180,6 +188,7 @@ public enum CryptoEngine {
             .replacingOccurrences(of: "-", with: "+")
             .replacingOccurrences(of: "_", with: "/")
         let remainder = base64.count % 4
+        if remainder == 1 { return nil }
         if remainder > 0 {
             base64.append(String(repeating: "=", count: 4 - remainder))
         }
@@ -252,22 +261,125 @@ public enum CryptoEngine {
         return try hkdfExpand(prk: prk, info: info, length: length)
     }
 
+    // MARK: - PADME Bucketing Algorithm (RFC 9543 with Minimum Floor)
+
+    /// Computes the target padded buffer size using Floored PADME (RFC 9543).
+    ///
+    /// - Parameters:
+    ///   - unpaddedLength: Length of the framed payload (plaintext length + 2 bytes for length prefix).
+    ///   - minFloor: Minimum buffer floor size in bytes (default: 128).
+    /// - Returns: Target buffer size in bytes.
+    public static func padLengthPadme(unpaddedLength: Int, minFloor: Int = defaultMinFloor) -> Int {
+        precondition(unpaddedLength >= 0, "Length must be non-negative")
+        let effective = max(unpaddedLength, minFloor)
+        let e = Int.bitWidth - 1 - effective.leadingZeroBitCount
+        let s = Int.bitWidth - e.leadingZeroBitCount
+        let z = e - s
+        if z <= 0 { return effective }
+        let mask = (1 << z) - 1
+        let padded = (effective + mask) & ~mask
+        return max(padded, minFloor)
+    }
+
+    // MARK: - Envelope Framing
+
+    /// Encodes plaintext into the v2 inner framed buffer format:
+    /// M[0..1] = Big-Endian uint16 (plaintext length N, 0 <= N <= 65533)
+    /// M[2..2+N-1] = plaintext bytes
+    /// M[2+N..B-1] = CSPRNG random padding bytes
+    public static func encodeFramedPayload(
+        plaintext: Data,
+        targetSize: Int,
+        paddingBytesOverride: Data? = nil
+    ) throws -> Data {
+        let pLen = plaintext.count
+        guard pLen <= 65533 else {
+            throw CryptoError.invalidPayload("Plaintext exceeds maximum 64KB limit")
+        }
+        guard targetSize >= pLen + 2 else {
+            throw CryptoError.invalidPayload("Target size smaller than framed payload")
+        }
+
+        var buffer = Data(count: targetSize)
+        buffer[0] = UInt8((pLen >> 8) & 0xFF)
+        buffer[1] = UInt8(pLen & 0xFF)
+        if pLen > 0 {
+            buffer.replaceSubrange(2..<(2 + pLen), with: plaintext)
+        }
+
+        let padCount = targetSize - 2 - pLen
+        if padCount > 0 {
+            if let override = paddingBytesOverride {
+                guard override.count >= padCount else {
+                    throw CryptoError.invalidPayload("Padding override too short: expected \(padCount) bytes, got \(override.count)")
+                }
+                buffer.replaceSubrange((2 + pLen)..<targetSize, with: override.prefix(padCount))
+            } else {
+                var padBytes = [UInt8](repeating: 0, count: padCount)
+                guard SecRandomCopyBytes(kSecRandomDefault, padCount, &padBytes) == errSecSuccess else {
+                    throw CryptoError.invalidPayload("CSPRNG failure generating padding")
+                }
+                buffer.replaceSubrange((2 + pLen)..<targetSize, with: padBytes)
+            }
+        }
+        return buffer
+    }
+
+    /// Decodes the v2 inner framed buffer and extracts the plaintext bytes.
+    public static func decodeFramedPayload(_ decryptedBytes: Data) throws -> Data {
+        guard decryptedBytes.count >= 2 else {
+            throw CryptoError.authenticationFailed
+        }
+        let declaredLen = (Int(decryptedBytes[0]) << 8) | Int(decryptedBytes[1])
+        guard declaredLen <= decryptedBytes.count - 2 else {
+            throw CryptoError.authenticationFailed
+        }
+        return decryptedBytes.subdata(in: 2..<(2 + declaredLen))
+    }
+
     // MARK: - Encryption
 
-    /// Encrypts binary plaintext into unpadded Base64URL sealed box.
+    /// Encrypts binary plaintext into an unpadded Base64URL sealed box with Floored PADME length hiding.
     ///
     /// - Parameters:
     ///   - plaintext: Raw bytes to encrypt.
     ///   - recipientPublicKey: Recipient X25519 public key.
     ///   - ephemeralPrivateKeyOverride: Optional ephemeral private key (useful for deterministic tests).
     ///   - nonceOverride: Optional 12-byte nonce (useful for deterministic tests).
-    /// - Returns: Unpadded Base64URL sealed box string (at least 80 characters).
+    /// - Returns: Unpadded Base64URL sealed box string (at least 252 characters for minFloor=128).
     public static func encrypt(
         _ plaintext: Data,
         recipientPublicKey: Curve25519.KeyAgreement.PublicKey,
         ephemeralPrivateKeyOverride: Curve25519.KeyAgreement.PrivateKey? = nil,
         nonceOverride: ChaChaPoly.Nonce? = nil
     ) throws -> String {
+        try encrypt(
+            plaintext,
+            recipientPublicKey: recipientPublicKey,
+            minFloor: defaultMinFloor,
+            ephemeralPrivateKeyOverride: ephemeralPrivateKeyOverride,
+            nonceOverride: nonceOverride,
+            paddingBytesOverride: nil
+        )
+    }
+
+    /// Encrypts binary plaintext into an unpadded Base64URL sealed box with custom minFloor and test overrides.
+    public static func encrypt(
+        _ plaintext: Data,
+        recipientPublicKey: Curve25519.KeyAgreement.PublicKey,
+        minFloor: Int,
+        ephemeralPrivateKeyOverride: Curve25519.KeyAgreement.PrivateKey? = nil,
+        nonceOverride: ChaChaPoly.Nonce? = nil,
+        paddingBytesOverride: Data? = nil
+    ) throws -> String {
+        let unpaddedLen = plaintext.count + 2
+        let targetSize = padLengthPadme(unpaddedLength: unpaddedLen, minFloor: minFloor)
+        let innerBuffer = try encodeFramedPayload(
+            plaintext: plaintext,
+            targetSize: targetSize,
+            paddingBytesOverride: paddingBytesOverride
+        )
+
         let ephemeralPrivateKey = ephemeralPrivateKeyOverride ?? Curve25519.KeyAgreement.PrivateKey()
         let ephemeralPubBytes = ephemeralPrivateKey.publicKey.rawRepresentation
 
@@ -280,26 +392,48 @@ public enum CryptoEngine {
         )
 
         let nonce = nonceOverride ?? ChaChaPoly.Nonce()
-        let sealedBox = try ChaChaPoly.seal(plaintext, using: symmetricKey, nonce: nonce)
 
-        // Sealed Box Wire Format:
-        // ephemeralPublicKey (32 bytes) + nonce (12 bytes) + ciphertext (N bytes) + tag (16 bytes)
-        var payload = Data()
-        payload.reserveCapacity(overheadBytes + plaintext.count)
-        payload.append(ephemeralPubBytes)
-        payload.append(contentsOf: nonce)
-        payload.append(sealedBox.ciphertext)
-        payload.append(sealedBox.tag)
+        var aad = Data()
+        aad.reserveCapacity(headerSizeBytes)
+        aad.append(protocolVersion)
+        aad.append(ephemeralPubBytes)
+        aad.append(contentsOf: nonce)
 
-        return base64UrlEncode(payload)
+        let sealedBox = try ChaChaPoly.seal(innerBuffer, using: symmetricKey, nonce: nonce, authenticating: aad)
+
+        // Sealed Box v2 Wire Format:
+        // protocolVersion (1B) + ephemeralPublicKey (32B) + nonce (12B) + ciphertext (B bytes) + tag (16B)
+        var wirePayload = Data()
+        wirePayload.reserveCapacity(fixedOverheadBytes + innerBuffer.count)
+        wirePayload.append(aad)
+        wirePayload.append(sealedBox.ciphertext)
+        wirePayload.append(sealedBox.tag)
+
+        return base64UrlEncode(wirePayload)
     }
 
-    /// Encrypts UTF-8 string plaintext into unpadded Base64URL sealed box.
+    /// Encrypts UTF-8 string plaintext into an unpadded Base64URL sealed box.
     public static func encrypt(
         _ plaintext: String,
         recipientPublicKey: Curve25519.KeyAgreement.PublicKey
     ) throws -> String {
         try encrypt(Data(plaintext.utf8), recipientPublicKey: recipientPublicKey)
+    }
+
+    /// Encrypts UTF-8 string plaintext into an unpadded Base64URL sealed box with custom minFloor.
+    public static func encrypt(
+        _ plaintext: String,
+        recipientPublicKey: Curve25519.KeyAgreement.PublicKey,
+        minFloor: Int
+    ) throws -> String {
+        try encrypt(
+            Data(plaintext.utf8),
+            recipientPublicKey: recipientPublicKey,
+            minFloor: minFloor,
+            ephemeralPrivateKeyOverride: nil,
+            nonceOverride: nil,
+            paddingBytesOverride: nil
+        )
     }
 
     /// Encrypts binary plaintext using recipient raw public key bytes.
@@ -324,10 +458,10 @@ public enum CryptoEngine {
 
     // MARK: - Decryption
 
-    /// Decrypts an unpadded Base64URL sealed box ciphertext.
+    /// Decrypts an unpadded Base64URL sealed box ciphertext with Floored PADME framing.
     ///
     /// - Parameters:
-    ///   - sealedBoxBase64: Unpadded Base64URL string of at least 80 characters.
+    ///   - sealedBoxBase64: Unpadded Base64URL string of at least 63 bytes (>= 166 characters).
     ///   - recipientPrivateKey: Recipient X25519 private key.
     /// - Returns: Decrypted plaintext bytes.
     public static func decrypt(
@@ -337,20 +471,20 @@ public enum CryptoEngine {
         guard let payload = base64UrlDecode(sealedBoxBase64) else {
             throw CryptoError.invalidBase64
         }
-        guard payload.count >= overheadBytes else {
-            throw CryptoError.invalidPayload(
-                "Payload size (\(payload.count)) is smaller than minimum overhead (\(overheadBytes) bytes)"
-            )
+        guard payload.count >= fixedOverheadBytes + 2, payload[0] == protocolVersion else {
+            throw CryptoError.authenticationFailed
         }
 
-        let ephemeralPubBytes = payload.prefix(keySizeBytes)
-        let combined = payload.dropFirst(keySizeBytes)
+        let aad = payload.prefix(headerSizeBytes)
+        let ephemeralPubBytes = payload.subdata(in: 1..<33)
+        let nonceBytes = payload.subdata(in: 33..<45)
+        let ciphertextWithTag = payload.subdata(in: 45..<payload.count)
 
         let ephemeralPublicKey: Curve25519.KeyAgreement.PublicKey
         do {
             ephemeralPublicKey = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: ephemeralPubBytes)
         } catch {
-            throw CryptoError.invalidPayload("Invalid ephemeral public key")
+            throw CryptoError.authenticationFailed
         }
 
         let sharedSecret: SharedSecret
@@ -367,12 +501,15 @@ public enum CryptoEngine {
             outputByteCount: 32
         )
 
+        let innerBuffer: Data
         do {
-            let sealedBox = try ChaChaPoly.SealedBox(combined: combined)
-            return try ChaChaPoly.open(sealedBox, using: symmetricKey)
+            let sealedBox = try ChaChaPoly.SealedBox(combined: nonceBytes + ciphertextWithTag)
+            innerBuffer = try ChaChaPoly.open(sealedBox, using: symmetricKey, authenticating: aad)
         } catch {
             throw CryptoError.authenticationFailed
         }
+
+        return try decodeFramedPayload(innerBuffer)
     }
 
     /// Decrypts an unpadded Base64URL sealed box ciphertext and decodes UTF-8 string.
@@ -413,13 +550,13 @@ public enum CryptoEngine {
 
     // MARK: - Candidate Scanning & Decryption
 
-    /// Scans input text for Base64URL ciphertext candidates (>= 80 chars),
+    /// Scans input text for Base64URL ciphertext candidates (>= 166 chars),
     /// attempts sealed box decryption for each, and replaces successful candidates in-place.
     ///
     /// - Parameters:
     ///   - inputText: Raw text potentially containing ciphertext substrings.
     ///   - recipientPrivateKey: Recipient X25519 private key.
-    /// - Returns: DecryptResult indicating .noCandidates, .authFailed, or .success(text, secrets).
+    /// - Returns: DecryptResult indicating .noCandidates, .authFailed, or .success(text, secrets, ranges).
     public static func decryptTextWithCandidates(
         _ inputText: String,
         recipientPrivateKey: Curve25519.KeyAgreement.PrivateKey
@@ -438,6 +575,14 @@ public enum CryptoEngine {
         for match in matches {
             guard let stringRange = Range(match.range, in: inputText) else { continue }
             let candidate = String(inputText[stringRange])
+
+            // Fast rejection on byte 0 if decoded token byte 0 != 0x02 before performing X25519
+            guard let payload = base64UrlDecode(candidate),
+                  payload.count >= fixedOverheadBytes + 2,
+                  payload[0] == protocolVersion else {
+                continue
+            }
+
             do {
                 let decrypted = try decryptToString(candidate, recipientPrivateKey: recipientPrivateKey)
                 successfulMatches.append((range: stringRange, decrypted: decrypted))

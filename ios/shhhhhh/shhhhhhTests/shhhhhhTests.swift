@@ -135,7 +135,7 @@ struct shhhhhhTests {
         for message in messages {
             // Alice encrypts for Bob
             let ciphertext = try CryptoEngine.encrypt(message, recipientPublicKey: bob.publicKey)
-            #expect(ciphertext.count >= 80)
+            #expect(ciphertext.count >= 252)
 
             let range = NSRange(location: 0, length: ciphertext.utf16.count)
             #expect(CryptoEngine.candidateRegex.firstMatch(in: ciphertext, options: [], range: range) != nil)
@@ -146,11 +146,15 @@ struct shhhhhhTests {
         }
     }
 
-    @Test func testEncryptionAndDecryptionOfEmptyStringProduces80Chars() throws {
+    @Test func testEncryptionAndDecryptionOfEmptyStringProduces252Chars() throws {
         let alice = CryptoEngine.generateKeyPair()
 
         let emptyCiphertext = try CryptoEngine.encrypt("", recipientPublicKey: alice.publicKey)
-        #expect(emptyCiphertext.count == 80)
+        #expect(emptyCiphertext.count == 252)
+
+        let rawPayload = try #require(CryptoEngine.base64UrlDecode(emptyCiphertext))
+        #expect(rawPayload.count == 189)
+        #expect(rawPayload[0] == 0x02)
 
         let range = NSRange(location: 0, length: emptyCiphertext.utf16.count)
         #expect(CryptoEngine.candidateRegex.firstMatch(in: emptyCiphertext, options: [], range: range) != nil)
@@ -160,6 +164,74 @@ struct shhhhhhTests {
 
         let decryptedBytes = try CryptoEngine.decrypt(emptyCiphertext, recipientPrivateKey: alice.privateKey)
         #expect(decryptedBytes.isEmpty)
+    }
+
+    @Test func testAllSecretsUpTo126BytesProduceExactly252Chars() throws {
+        let alice = CryptoEngine.generateKeyPair()
+
+        let lengthsToTest = [0, 1, 2, 4, 15, 16, 31, 32, 57, 64, 100, 125, 126]
+        for len in lengthsToTest {
+            let secret = String(repeating: "K", count: len)
+            let ciphertext = try CryptoEngine.encrypt(secret, recipientPublicKey: alice.publicKey)
+
+            #expect(ciphertext.count == 252, "Failed for length \(len): got \(ciphertext.count) chars")
+
+            guard let rawPayload = CryptoEngine.base64UrlDecode(ciphertext) else {
+                Issue.record("Failed to Base64URL decode ciphertext for length \(len)")
+                continue
+            }
+            #expect(rawPayload.count == 189)
+            #expect(rawPayload[0] == 0x02)
+
+            let decrypted = try CryptoEngine.decryptToString(ciphertext, recipientPrivateKey: alice.privateKey)
+            #expect(decrypted == secret)
+        }
+    }
+
+    @Test func testPadmeBucketingLengthsAbove126Bytes() throws {
+        let alice = CryptoEngine.generateKeyPair()
+
+        // Test padLengthPadme directly
+        #expect(CryptoEngine.padLengthPadme(unpaddedLength: 0) == 128)
+        #expect(CryptoEngine.padLengthPadme(unpaddedLength: 128) == 128)
+        #expect(CryptoEngine.padLengthPadme(unpaddedLength: 129) == 144)
+        #expect(CryptoEngine.padLengthPadme(unpaddedLength: 144) == 144)
+        #expect(CryptoEngine.padLengthPadme(unpaddedLength: 145) == 160)
+        #expect(CryptoEngine.padLengthPadme(unpaddedLength: 160) == 160)
+        #expect(CryptoEngine.padLengthPadme(unpaddedLength: 161) == 176)
+        #expect(CryptoEngine.padLengthPadme(unpaddedLength: 200) == 208)
+        #expect(CryptoEngine.padLengthPadme(unpaddedLength: 256) == 256)
+        #expect(CryptoEngine.padLengthPadme(unpaddedLength: 257) == 272)
+        #expect(CryptoEngine.padLengthPadme(unpaddedLength: 500) == 512)
+        #expect(CryptoEngine.padLengthPadme(unpaddedLength: 1000) == 1024)
+        #expect(CryptoEngine.padLengthPadme(unpaddedLength: 4000) == 4096)
+
+        // Test encryption of payloads exceeding 126 bytes
+        let testCases: [(plaintextLen: Int, expectedTargetSize: Int)] = [
+            (127, 144), // unpadded 129 -> 144
+            (150, 160), // unpadded 152 -> 160
+            (200, 208), // unpadded 202 -> 208
+            (254, 256), // unpadded 256 -> 256
+            (500, 512), // unpadded 502 -> 512
+            (1000, 1024) // unpadded 1002 -> 1024
+        ]
+
+        for tc in testCases {
+            let secret = String(repeating: "Z", count: tc.plaintextLen)
+            let ciphertext = try CryptoEngine.encrypt(secret, recipientPublicKey: alice.publicKey)
+
+            guard let rawPayload = CryptoEngine.base64UrlDecode(ciphertext) else {
+                Issue.record("Failed to decode ciphertext of length \(tc.plaintextLen)")
+                continue
+            }
+
+            let expectedWireBytes = tc.expectedTargetSize + CryptoEngine.fixedOverheadBytes
+            #expect(rawPayload.count == expectedWireBytes)
+            #expect(rawPayload[0] == 0x02)
+
+            let decrypted = try CryptoEngine.decryptToString(ciphertext, recipientPrivateKey: alice.privateKey)
+            #expect(decrypted == secret)
+        }
     }
 
     @Test func testDecryptionWithWrongPrivateKeyThrowsAuthenticationFailed() throws {
@@ -181,8 +253,8 @@ struct shhhhhhTests {
             return
         }
 
-        // Test tampering at various positions: ephemeral key, nonce, ciphertext body, MAC tag
-        let testIndices = [0, 15, 31, 32, 40, 43, 44, rawPayload.count / 2, rawPayload.count - 1]
+        // Test tampering at various positions: version byte, ephemeral key, nonce, ciphertext body, MAC tag
+        let testIndices = [0, 1, 15, 32, 33, 40, 44, 45, rawPayload.count / 2, rawPayload.count - 1]
 
         for idx in testIndices {
             var tampered = rawPayload
@@ -195,11 +267,36 @@ struct shhhhhhTests {
         }
     }
 
+    @Test func testFastRejectionOfInvalidProtocolVersion() throws {
+        let alice = CryptoEngine.generateKeyPair()
+        let ciphertext = try CryptoEngine.encrypt("Top Secret Message", recipientPublicKey: alice.publicKey)
+        guard var rawPayload = CryptoEngine.base64UrlDecode(ciphertext) else {
+            Issue.record("Failed to decode ciphertext")
+            return
+        }
+
+        let invalidVersions: [UInt8] = [0x00, 0x01, 0x03, 0x20, 0xFF]
+        for badVersion in invalidVersions {
+            rawPayload[0] = badVersion
+            let badBase64 = CryptoEngine.base64UrlEncode(rawPayload)
+
+            // Direct decrypt throws authenticationFailed immediately
+            #expect(throws: CryptoError.authenticationFailed) {
+                try CryptoEngine.decrypt(badBase64, recipientPrivateKey: alice.privateKey)
+            }
+
+            // Candidate scanner discards token on byte 0 and returns authFailed
+            let conversational = "Look at this token: \(badBase64) from peer"
+            let result = CryptoEngine.decryptTextWithCandidates(conversational, recipientPrivateKey: alice.privateKey)
+            #expect(result == .authFailed)
+        }
+    }
+
     @Test func testTruncatedOrInvalidPayloadThrows() throws {
         let alice = CryptoEngine.generateKeyPair()
 
-        // Less than 60 bytes
-        let shortBytes = Data(repeating: 0x42, count: 59)
+        // Less than 63 bytes (fixed overhead 61 + 2-byte length prefix)
+        let shortBytes = Data(repeating: 0x42, count: 62)
         let shortBase64 = CryptoEngine.base64UrlEncode(shortBytes)
 
         #expect(throws: CryptoError.self) {
@@ -220,8 +317,8 @@ struct shhhhhhTests {
         #expect(CryptoEngine.decryptTextWithCandidates("", recipientPrivateKey: alice.privateKey) == .noCandidates)
         #expect(CryptoEngine.decryptTextWithCandidates("Hello, this is just normal text.", recipientPrivateKey: alice.privateKey) == .noCandidates)
 
-        // String with 79 characters (one less than threshold)
-        let shortToken = String(repeating: "A", count: 79)
+        // String with 165 characters (one less than threshold 166)
+        let shortToken = String(repeating: "A", count: 165)
         #expect(CryptoEngine.decryptTextWithCandidates("Token: \(shortToken)", recipientPrivateKey: alice.privateKey) == .noCandidates)
     }
 
@@ -304,33 +401,50 @@ struct shhhhhhTests {
         ))
     }
 
-    // MARK: - Cross-Platform Android Test Vector
+    // MARK: - Cross-Platform Deterministic Test Vector
 
-    @Test func testCrossPlatformAndroidTestVector() throws {
+    @Test func testCrossPlatformDeterministicV2TestVector() throws {
         let alicePrivHex = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
         let expectedAlicePubBase64 = "B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9_AsrhtHHw"
-        let androidCiphertext = "HYlYuDVFH0uDir-USFnAmTOJzR3O0r6PR_rZQtXWzDSxicCpJoy1_sVhjKTcVhKUkvVr72eRH_q3OlBOJGX5KUYbPKALUXq8D6SE-Q"
+        let ephemeralPrivHex = "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+        let nonceHex = "404142434445464748494a4b"
         let expectedPlaintext = "BankPassword123!"
 
         let alicePrivData = hexToData(alicePrivHex)
         let aliceKeyPair = try CryptoEngine.createKeyPair(fromPrivateKey: alicePrivData)
-
         #expect(aliceKeyPair.publicKeyBase64Url == expectedAlicePubBase64)
 
+        let ephemeralPrivData = hexToData(ephemeralPrivHex)
+        let ephemeralPriv = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: ephemeralPrivData)
+        let nonce = try ChaChaPoly.Nonce(data: hexToData(nonceHex))
+        let fixedPadding = Data(repeating: 0x55, count: 110)
+
+        // Encrypt deterministically
+        let deterministicCiphertext = try CryptoEngine.encrypt(
+            Data(expectedPlaintext.utf8),
+            recipientPublicKey: aliceKeyPair.publicKey,
+            minFloor: 128,
+            ephemeralPrivateKeyOverride: ephemeralPriv,
+            nonceOverride: nonce,
+            paddingBytesOverride: fixedPadding
+        )
+
+        #expect(deterministicCiphertext.count == 252)
+
         // Direct decryption
-        let decrypted = try CryptoEngine.decryptToString(androidCiphertext, recipientPrivateKey: aliceKeyPair.privateKey)
+        let decrypted = try CryptoEngine.decryptToString(deterministicCiphertext, recipientPrivateKey: aliceKeyPair.privateKey)
         #expect(decrypted == expectedPlaintext)
 
         // Raw bytes decryption
-        let decryptedBytes = try CryptoEngine.decrypt(androidCiphertext, recipientPrivateKeyData: alicePrivData)
+        let decryptedBytes = try CryptoEngine.decrypt(deterministicCiphertext, recipientPrivateKeyData: alicePrivData)
         #expect(String(data: decryptedBytes, encoding: .utf8) == expectedPlaintext)
 
-        // In-place multi-match scanner with Android ciphertext
-        let conversationalInput = "Received from Android: \(androidCiphertext) -- check it out!"
+        // Candidate scanner in conversational text
+        let conversationalInput = "Received secret: \(deterministicCiphertext) -- please verify!"
         let scanResult = CryptoEngine.decryptTextWithCandidates(conversationalInput, recipientPrivateKey: aliceKeyPair.privateKey)
 
         #expect(scanResult == .success(
-            text: "Received from Android: \(expectedPlaintext) -- check it out!",
+            text: "Received secret: \(expectedPlaintext) -- please verify!",
             secrets: [expectedPlaintext]
         ))
     }
