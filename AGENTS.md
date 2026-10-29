@@ -159,7 +159,7 @@ the end and commit it in a single commit.
 
 ### Formatters
 
-- **JSON, Markdown, TOML, and YAML** (`.json`, `.md`, `.yml`, `.toml`, `.yaml`):
+- **JSON, Markdown, TOML, TypeScript, and YAML** (`.json`, `.md`, `.toml`, `.ts`, `.yaml`, `.yml`):
 
   ```bash
   scripts/prettier.zsh

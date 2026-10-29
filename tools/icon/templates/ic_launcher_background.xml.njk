@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="{{ width | default('108dp') }}"
+    android:height="{{ height | default('108dp') }}"
+    android:viewportWidth="{{ viewportWidth | default(108) }}"
+    android:viewportHeight="{{ viewportHeight | default(108) }}">
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:angle="315"
+                android:startColor="{{ startColor | default('#0A2550') }}"
+                android:centerColor="{{ centerColor | default('#081D40') }}"
+                android:endColor="{{ endColor | default('#051126') }}"
+                android:type="linear" />
+        </aapt:attr>
+    </path>
+</vector>

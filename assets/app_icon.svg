@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="432" height="432">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a2550" />
+      <stop offset="50%" stop-color="#081d40" />
+      <stop offset="100%" stop-color="#051126" />
+    </linearGradient>
+    <linearGradient id="shackleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#60a5fa" />
+      <stop offset="100%" stop-color="#2563eb" />
+    </linearGradient>
+    <linearGradient id="bubbleGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="50%" stop-color="#1d4ed8" />
+      <stop offset="100%" stop-color="#1e3a8a" />
+    </linearGradient>
+    <linearGradient id="rimGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.6" />
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="108" height="108" fill="url(#bg)" />
+
+  <!-- Shackle -->
+  <path d="M 40,46 L 40,36 C 40,28.27 46.27,22 54,22 C 61.73,22 68,28.27 68,36 L 68,46 L 61,46 L 61,36 C 61,32.13 57.87,29 54,29 C 50.13,29 47,32.13 47,36 L 47,46 Z" fill="url(#shackleGrad)" />
+
+  <!-- Speech Bubble Body -->
+  <path d="M 54,36 C 67.25,36 78,46.75 78,60 C 78,65.8 75.9,71.2 72.5,75.3 L 78.5,86.5 C 78.8,87.1 78.2,87.8 77.5,87.5 L 66.8,82.9 C 62.9,84.9 58.6,86 54,86 C 40.75,86 30,75.25 30,60 C 30,46.75 40.75,36 54,36 Z" fill="url(#bubbleGrad)" />
+
+  <!-- Glassmorphic Rim Light -->
+  <path d="M 54,37.5 C 66.4,37.5 76.5,47.6 76.5,60 C 76.5,64.5 75,69 72.3,72.7" fill="none" stroke="url(#rimGrad)" stroke-width="1.5" stroke-linecap="round" />
+
+  <!-- Keyhole -->
+  <path d="M 51.5,58.5 L 50.2,68 C 50.1,68.8 50.7,69.5 51.5,69.5 L 56.5,69.5 C 57.3,69.5 57.9,68.8 57.8,68 L 56.5,58.5 C 57.7,57.5 58.5,56 58.5,54.2 C 58.5,51.7 56.5,49.7 54,49.7 C 51.5,49.7 49.5,51.7 49.5,54.2 C 49.5,56 50.3,57.5 51.5,58.5 Z" fill="#060f22" />
+</svg>
