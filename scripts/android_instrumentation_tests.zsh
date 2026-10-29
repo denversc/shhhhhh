@@ -14,20 +14,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-setopt errexit nounset pipefail
+emulate -L zsh
+setopt errexit nounset pipefail extendedglob
 
 source "${0:A:h}/util/say.zsh"
 
-typeset -r project_root_dir="${0:A:h:h}/android"
+typeset -r shhhhhh_root_dir="${0:A:h:h}"
 
 typeset -r targets=(
   "connectedDebugAndroidTest"
 )
 
 typeset -r args=(
-  "$project_root_dir/gradlew"
+  "$shhhhhh_root_dir/android/gradlew"
   "-p"
-  "$project_root_dir"
+  "$shhhhhh_root_dir/android"
   "$@"
   "${targets[@]}"
 )
