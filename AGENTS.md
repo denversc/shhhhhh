@@ -147,12 +147,24 @@ directory.
   scripts/ios_ui_tests.zsh
   ```
 
-### Code Formatting & Quality
+---
 
-- **Format Markdown, YAML, and JSON**:
+## 5. Code Formatting
+
+Code formatting **MUST** be done before declaring a task to be "complete".
+
+Note that formatting is **NOT** required in order to commit to git, so agents are encouraged to, if
+they deem it would materially reduce the overall time to complete the task, save code formatting to
+the end and commit it in a single commit.
+
+### Formatters
+
+- **JSON, Markdown, and YAML** (`.json`, `.md`, `.yml`, `.yaml`):
   ```bash
   scripts/prettier.zsh
   ```
   > [!TIP] Running `scripts/prettier.zsh` without arguments formats matching files in-place. Pass
   > `--check` to verify formatting without modifying files, or pass specific files to format only
   > those targets.
+
+> [!NOTE] This section will be amended later on once more formatters are set up.
