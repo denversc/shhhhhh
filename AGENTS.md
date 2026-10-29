@@ -166,6 +166,12 @@ the end and commit it in a single commit.
   ```
 
 - **Kotlin and Kotlin Gradle Scripts** (`.kt`, `.kts`):
+
   ```bash
   scripts/spotless.zsh
+  ```
+
+- **Swift** (`.swift`):
+  ```bash
+  scripts/swift_format.zsh
   ```
