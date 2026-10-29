@@ -145,6 +145,12 @@ directory.
   scripts/ios_uninstall.zsh
   ```
 
+- **Stop App on Simulator**:
+
+  ```bash
+  scripts/ios_stop.zsh
+  ```
+
 - **Run Unit Tests**:
 
   ```bash
