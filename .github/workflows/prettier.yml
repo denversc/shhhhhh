@@ -39,5 +39,7 @@ jobs:
           persist-credentials: false
       - name: zsh install
         run: sudo apt install zsh
+      - run: dpkg -L zsh
+      - run: dpkg -L zsh-common
       - name: prettier
         run: ./scripts/prettier.zsh --check
