@@ -159,13 +159,19 @@ the end and commit it in a single commit.
 
 ### Formatters
 
-- **JSON, Markdown, and YAML** (`.json`, `.md`, `.yml`, `.yaml`):
+- **JSON, Markdown, TOML, and YAML** (`.json`, `.md`, `.yml`, `.toml`, `.yaml`):
 
   ```bash
   scripts/prettier.zsh
   ```
 
 - **Kotlin and Kotlin Gradle Scripts** (`.kt`, `.kts`):
+
   ```bash
   scripts/spotless.zsh
+  ```
+
+- **Swift** (`.swift`):
+  ```bash
+  scripts/swift_format.zsh
   ```

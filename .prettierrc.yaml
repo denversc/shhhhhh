@@ -5,3 +5,5 @@ useTabs: false
 singleQuote: false
 trailingComma: all
 bracketSpacing: true
+plugins:
+  - "prettier-plugin-toml"

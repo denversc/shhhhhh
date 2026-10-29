@@ -36,4 +36,3 @@ mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
-

@@ -7,17 +7,18 @@
 
 import SwiftUI
 
+// swift-format-ignore: TypeNamesShouldBeCapitalized
 @main
 struct shhhhhhApp: App {
-    init() {
-        if CommandLine.arguments.contains("-reset-storage") {
-            KeychainAppStorage.shared.clearAll()
-        }
+  init() {
+    if CommandLine.arguments.contains("-reset-storage") {
+      KeychainAppStorage.shared.clearAll()
     }
+  }
 
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
-        }
+  var body: some Scene {
+    WindowGroup {
+      ContentView()
     }
+  }
 }
