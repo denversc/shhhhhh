@@ -2,6 +2,15 @@ name: spotless
 
 on:
   workflow_dispatch:
+    inputs:
+      gradle-cache-mode:
+        description: "Gradle cache mode"
+        type: choice
+        options:
+          - restore
+          - save
+          - none
+        default: restore
   pull_request:
     paths:
       - ".github/workflows/spotless.yml"
@@ -41,5 +50,47 @@ jobs:
           java-version: "21"
       - name: zsh install
         run: sudo apt install zsh
+      - name: restore gradle and m2 cache
+        if:
+          github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' &&
+          inputs['gradle-cache-mode'] == 'restore')
+        uses: actions/cache/restore@d4323d4df104b026a6aa633fdb11d772146be0bf # ratchet:actions/cache/restore@v4.2.2
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.m2/repository
+          key:
+            gradle-m2-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*',
+            'android/**/gradle-wrapper.properties', 'android/gradle/libs.versions.toml') }}-${{
+            github.run_id }}
+          restore-keys: |
+            gradle-m2-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties', 'android/gradle/libs.versions.toml') }}-
+            gradle-m2-${{ runner.os }}-
       - name: spotless check
         run: ./scripts/spotless.zsh --check
+      - name: clean up gradle cache before save
+        if:
+          github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' &&
+          inputs['gradle-cache-mode'] == 'save')
+        run: |
+          ./android/gradlew -p android --stop || true
+          rm -f ~/.gradle/caches/*.lock
+          rm -f ~/.gradle/caches/*/*.lock
+          rm -f ~/.gradle/caches/*/plugin-resolution/*.lock
+          rm -f ~/.gradle/caches/modules-2/modules-2.lock
+          rm -f ~/.gradle/caches/modules-2/gc.properties
+      - name: save gradle and m2 cache
+        if:
+          github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' &&
+          inputs['gradle-cache-mode'] == 'save')
+        uses: actions/cache/save@d4323d4df104b026a6aa633fdb11d772146be0bf # ratchet:actions/cache/save@v4.2.2
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.m2/repository
+          key:
+            gradle-m2-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*',
+            'android/**/gradle-wrapper.properties', 'android/gradle/libs.versions.toml') }}-${{
+            github.run_id }}
