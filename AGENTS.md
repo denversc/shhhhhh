@@ -5,7 +5,7 @@ repository (`shhhhhh`).
 
 ---
 
-## 1. Git Commit Philosophy & Format
+## Git Commit Philosophy & Format
 
 ### Frequency & Philosophy
 
@@ -26,7 +26,7 @@ and rationale body guidelines), see
 
 ---
 
-## 2. Git Worktrees
+## Git Worktrees
 
 - **Default to the Current Workspace**: Agents should work directly in the current workspace by
   default.
@@ -45,7 +45,7 @@ and rationale body guidelines), see
 
 ---
 
-## 3. Resource Locking
+## Resource Locking
 
 When interacting with shared hardware or software resources (such as simulators or devices), agents
 must coordinate using the mutual-exclusion skill located at
@@ -80,7 +80,7 @@ multi-step session.
 
 ---
 
-## 4. Building and Running
+## Building and Running
 
 Common build, test, and lifecycle commands are encapsulated in scripts located in the `scripts/`
 directory.
@@ -149,7 +149,7 @@ directory.
 
 ---
 
-## 5. Code Formatting
+## Code Formatting
 
 Code formatting **MUST** be done before declaring a task to be "complete".
 
@@ -163,8 +163,3 @@ the end and commit it in a single commit.
   ```bash
   scripts/prettier.zsh
   ```
-  > [!TIP] Running `scripts/prettier.zsh` without arguments formats matching files in-place. Pass
-  > `--check` to verify formatting without modifying files, or pass specific files to format only
-  > those targets.
-
-> [!NOTE] This section will be amended later on once more formatters are set up.
