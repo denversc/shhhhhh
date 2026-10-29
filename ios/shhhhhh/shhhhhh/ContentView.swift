@@ -56,6 +56,7 @@ struct ContentView: View {
     @State private var programmaticTextTarget: String? = nil
     @State private var isDecryptPressed: Bool = false
     @State private var longPressTriggered: Bool = false
+    @State private var isKeyboardVisible: Bool = false
 
     init(
         storage: AppStorage = KeychainAppStorage.shared,
@@ -291,6 +292,14 @@ struct ContentView: View {
             .padding(16)
             .navigationTitle("shhhhhh")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(isKeyboardVisible ? .hidden : .visible, for: .navigationBar)
+            .animation(.easeInOut(duration: 0.25), value: isKeyboardVisible)
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                isKeyboardVisible = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                isKeyboardVisible = false
+            }
             .overlay(alignment: .top) {
                 if let banner = copiedBannerText {
                     Text(banner)
