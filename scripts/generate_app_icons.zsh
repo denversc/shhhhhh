@@ -27,7 +27,7 @@ typeset -r android_res_dir="${shhhhhh_root_dir}/android/app/src/main/res"
 typeset -r required_node_version="24.12.0"
 
 if ! command -v node >/dev/null 2>&1; then
-  echo "Error: node is required to run the icon generator." >&2
+  say_error "node is required to run the icon generator." >&2
   exit 1
 fi
 
@@ -36,12 +36,12 @@ current_node_version="$(node --version | sed 's/^v//')"
 
 autoload -Uz is-at-least
 if ! is-at-least "${required_node_version}" "${current_node_version}"; then
-  echo "Error: Node.js version ${current_node_version} is less than required ${required_node_version}." >&2
+  say_error "Node.js version ${current_node_version} is less than required ${required_node_version}." >&2
   exit 1
 fi
 
 if [[ ! -f "$master_svg" ]]; then
-  echo "Error: Master SVG icon not found at $master_svg" >&2
+  say_error "Master SVG icon not found at $master_svg" >&2
   exit 1
 fi
 
@@ -58,7 +58,7 @@ if [[ ! -d "${tools_dir}/node_modules/sharp" ]]; then
   "${npm_install_args[@]}"
 fi
 
-function run_generator {
+run_generator() {
   typeset output_file="$1"
   typeset output_type="$2"
   typeset -a args=(
@@ -75,7 +75,7 @@ function run_generator {
   "${args[@]}"
 }
 
-echo "==> Generating iOS AppIcon assets..."
+say "==> Generating iOS AppIcon assets..."
 mkdir -p "$ios_appicon_dir"
 
 run_generator "${ios_appicon_dir}/AppIcon.png" "AppIcon.png"
@@ -123,7 +123,7 @@ cat << 'EOF' > "${ios_appicon_dir}/Contents.json"
 }
 EOF
 
-echo "==> Generating Android Adaptive Icon XML drawables..."
+say "==> Generating Android Adaptive Icon XML drawables..."
 mkdir -p "${android_res_dir}/drawable"
 
 run_generator "${android_res_dir}/drawable/ic_launcher_background.xml" "android/drawable/ic_launcher_background.xml"
@@ -149,7 +149,7 @@ cat << 'EOF' > "${android_res_dir}/mipmap-anydpi/ic_launcher_round.xml"
 </adaptive-icon>
 EOF
 
-echo "==> Generating Android raster mipmaps (WebP)..."
+say "==> Generating Android raster mipmaps (WebP)..."
 typeset -a densities=("mdpi" "hdpi" "xhdpi" "xxhdpi" "xxxhdpi")
 
 for density in "${densities[@]}"; do
@@ -160,4 +160,4 @@ for density in "${densities[@]}"; do
   run_generator "${target_dir}/ic_launcher_round.webp" "android/mipmap-${density}/ic_launcher_round.webp"
 done
 
-echo "==> Application icon assets successfully generated for iOS and Android!"
+say "==> Application icon assets successfully generated for iOS and Android!"
