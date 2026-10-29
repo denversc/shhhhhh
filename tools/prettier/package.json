@@ -1,0 +1,8 @@
+{
+  "name": "shhhhhh-prettier",
+  "private": true,
+  "description": "Prettier toolchain for shhhhhh repository",
+  "devDependencies": {
+    "prettier": "^3.9.10"
+  }
+}
