@@ -69,7 +69,6 @@ jobs:
             spotless-gradle-${{ runner.os }}-${{ hashFiles( 'android/**/*.gradle*',
             'android/gradle/**' )}}-${{ github.run_id }}
           restore-keys: |
-            spotless-gradle-${{ runner.os }}-${{ hashFiles( 'android/**/*.gradle*', 'android/gradle/**' )}}-
             spotless-gradle-${{ runner.os }}-
 
       - name: spotless check
