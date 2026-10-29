@@ -38,6 +38,4 @@ jobs:
           show-progress: false
           persist-credentials: false
       - name: prettier
-        run: |
-          set -xveuo pipefail
-          ./scripts/prettier.zsh --check
+        run: ./scripts/prettier.zsh --check
