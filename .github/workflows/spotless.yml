@@ -15,6 +15,8 @@ on:
     paths:
       - ".github/workflows/spotless.yml"
       - "scripts/spotless.zsh"
+      - "android/gradle/**/*"
+      - "android/**/*gradle*"
       - "android/**/*.kt"
       - "android/**/*.kts"
   schedule:
@@ -50,7 +52,7 @@ jobs:
           java-version: "21"
       - name: zsh install
         run: sudo apt install zsh
-      - name: restore gradle and m2 cache
+      - name: restore gradle cache
         if:
           github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' &&
           inputs['gradle-cache-mode'] == 'restore')
@@ -61,36 +63,34 @@ jobs:
             ~/.gradle/wrapper
             ~/.m2/repository
           key:
-            gradle-m2-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*',
-            'android/**/gradle-wrapper.properties', 'android/gradle/libs.versions.toml') }}-${{
-            github.run_id }}
+            spotless-gradle-${{ runner.os }}-${{ hashFiles( 'android/**/*.gradle*',
+            'android/gradle/**' )}}-${{ github.run_id }}
           restore-keys: |
-            gradle-m2-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties', 'android/gradle/libs.versions.toml') }}-
-            gradle-m2-${{ runner.os }}-
+            spotless-gradle-${{ runner.os }}-${{ hashFiles( 'android/**/*.gradle*', 'android/gradle/**' )}}-
+            spotless-gradle-${{ runner.os }}-
       - name: spotless check
         run: ./scripts/spotless.zsh --check
-      - name: clean up gradle cache before save
-        if:
-          github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' &&
-          inputs['gradle-cache-mode'] == 'save')
+      - name: clean up ~/.gradle (for cache saving)
+        shell: zsh {0}
         run: |
+          setopt errexit nounset pipefail extendedglob
+          echo
+          echo "Stopping gradle daemons..."
           ./android/gradlew -p android --stop || true
-          rm -f ~/.gradle/caches/*.lock
-          rm -f ~/.gradle/caches/*/*.lock
-          rm -f ~/.gradle/caches/*/plugin-resolution/*.lock
-          rm -f ~/.gradle/caches/modules-2/modules-2.lock
-          rm -f ~/.gradle/caches/modules-2/gc.properties
+          echo
+          echo "Deleting files that are not appropriate to cache..."
+          rm -fv ~/.gradle/**/*.lock
+          rm -fv ~/.gradle/**/gc.properties
       - name: save gradle and m2 cache
         if:
           github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' &&
           inputs['gradle-cache-mode'] == 'save')
         uses: actions/cache/save@d4323d4df104b026a6aa633fdb11d772146be0bf # ratchet:actions/cache/save@v4.2.2
         with:
+          key:
+            spotless-gradle-${{ runner.os }}-${{ hashFiles( 'android/**/*.gradle*',
+            'android/gradle/**' )}}-${{ github.run_id }}
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
             ~/.m2/repository
-          key:
-            gradle-m2-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*',
-            'android/**/gradle-wrapper.properties', 'android/gradle/libs.versions.toml') }}-${{
-            github.run_id }}
