@@ -44,7 +44,9 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -379,19 +381,22 @@ fun MainScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
-            AnimatedVisibility(
-                visible = !WindowInsets.isImeVisible,
-                enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
-                exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut()
-            ) {
-                CenterAlignedTopAppBar(
-                    title = {
-                        Text(
-                            text = "shhhhhh",
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                )
+            Column(modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars)) {
+                AnimatedVisibility(
+                    visible = !WindowInsets.isImeVisible,
+                    enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
+                    exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut()
+                ) {
+                    CenterAlignedTopAppBar(
+                        windowInsets = WindowInsets(0, 0, 0, 0),
+                        title = {
+                            Text(
+                                text = "shhhhhh",
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    )
+                }
             }
         },
         snackbarHost = {
