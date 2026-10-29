@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/prettier.yml"
       - "scripts/prettier.zsh"
+      - "tools/icon/**"
       - "tools/prettier/**"
       - "**/*.gitignore"
       - "**/*.prettierignore"
@@ -13,6 +14,7 @@ on:
       - "**/*.json"
       - "**/*.md"
       - "**/*.toml"
+      - "**/*.ts"
       - "**/*.yaml"
       - "**/*.yml"
   schedule:
