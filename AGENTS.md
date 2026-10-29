@@ -139,6 +139,12 @@ directory.
   scripts/ios_install.zsh
   ```
 
+- **Uninstall App from Simulator**:
+
+  ```bash
+  scripts/ios_uninstall.zsh
+  ```
+
 - **Run Unit Tests**:
 
   ```bash
