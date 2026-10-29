@@ -109,3 +109,12 @@ Common build, test, and lifecycle commands are encapsulated in scripts located i
   ```bash
   scripts/ios_ui_tests.zsh
   ```
+
+### Code Formatting & Quality
+* **Format Markdown, YAML, and JSON**:
+  ```bash
+  scripts/prettier.zsh
+  ```
+  > [!TIP]
+  > Running `scripts/prettier.zsh` without arguments formats matching files in-place. Pass `--check` to verify formatting without modifying files, or pass specific files to format only those targets.
+
