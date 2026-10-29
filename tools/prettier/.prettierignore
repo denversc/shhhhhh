@@ -1,0 +1,23 @@
+# Version control & worktrees
+.git/
+worktrees/
+
+# Package dependencies
+**/node_modules/
+tools/prettier/package-lock.json
+
+# Android & Gradle build artifacts
+.gradle/
+android/build/
+android/.gradle/
+android/app/build/
+android/local.properties
+
+# iOS asset catalogs (managed directly by Xcode)
+**/*.xcassets/**/Contents.json
+
+# Internal agent locks
+.agents/resource-locks/
+
+# OS metadata
+.DS_Store
