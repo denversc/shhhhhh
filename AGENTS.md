@@ -57,49 +57,55 @@ Agents have full discretion over whether to lock per command or maintain an acti
 
 ## 4. Building and Running
 
-### Android (`android/`)
+Common build, test, and lifecycle commands are encapsulated in scripts located in the `scripts/` directory.
+
+### Android
 * **Compile Sources**:
   ```bash
-  ./android/gradlew -p android compileDebugSources
+  scripts/android_compile.zsh
   ```
   > [!TIP]
-  > Recommend `compileDebugSources` over `assembleDebug` because `compileDebugSources` is much faster. Only use `assembleDebug` if the APK artifact is needed or testing an aspect of APK generation is required.
-
-* **Assemble Debug APK**:
-  ```bash
-  ./android/gradlew -p android assembleDebug
-  ```
+  > Use `scripts/android_compile.zsh` for quick compilation checks instead of building full APK artifacts.
 
 * **Run Unit Tests**:
   ```bash
-  ./android/gradlew -p android testDebugUnitTest
+  scripts/android_unit_tests.zsh
   ```
 
 * **Install Debug Build to Device/Emulator**:
   ```bash
-  ./android/gradlew -p android app:installDebug
+  scripts/android_install.zsh
   ```
 
 * **Launch Main Activity via ADB**:
   ```bash
-  adb shell am start -n prefix924.shhhhhh/.MainActivity
+  scripts/android_launch.zsh
   ```
 
-### iOS (`ios/`)
-* **Project**: `ios/shhhhhh/shhhhhh.xcodeproj`
-* **Scheme**: `shhhhhh`
-* **Build Project**:
+* **Run Instrumentation Tests**:
   ```bash
-  xcodebuild -project ios/shhhhhh/shhhhhh.xcodeproj -scheme shhhhhh -destination "<DESTINATION>" build
+  scripts/android_instrumentation_tests.zsh
   ```
+
+* **Clear App Data / State**:
+  ```bash
+  scripts/android_clear.zsh
+  ```
+
+### iOS
+* **Compile Project & Tests**:
+  ```bash
+  scripts/ios_compile.zsh
+  ```
+
 * **Run Unit Tests**:
   ```bash
-  xcodebuild -project ios/shhhhhh/shhhhhh.xcodeproj -scheme shhhhhh -destination "<DESTINATION>" -only-testing:shhhhhhTests test
+  scripts/ios_unit_tests.zsh
   ```
   > [!TIP]
-  > Running unit tests alone with `-only-testing:shhhhhhTests` is an order of magnitude faster than running the full test suite or UI tests.
+  > Running unit tests alone with `scripts/ios_unit_tests.zsh` is an order of magnitude faster than running the full test suite or UI tests.
 
 * **Run UI / Integration Tests**:
   ```bash
-  xcodebuild -project ios/shhhhhh/shhhhhh.xcodeproj -scheme shhhhhh -destination "<DESTINATION>" -only-testing:shhhhhhUITests test
+  scripts/ios_ui_tests.zsh
   ```
