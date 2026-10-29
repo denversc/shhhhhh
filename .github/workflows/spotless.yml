@@ -63,13 +63,12 @@ jobs:
         with:
           path: |
             ~/.gradle/caches
+            !~/.gradle/**/*.lock
+            !~/.gradle/**/gc.properties
             ~/.gradle/wrapper
             ~/.m2/repository
-          key:
-            spotless-gradle-${{ runner.os }}-${{ hashFiles( 'android/**/*.gradle*',
-            'android/gradle/**' )}}-${{ github.run_id }}
-          restore-keys: |
-            spotless-gradle-${{ runner.os }}-
+          key: ${{ github.workflow }}-gradle-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: ${{ github.workflow }}-gradle-
 
       - name: spotless check
         run: ./scripts/spotless.zsh --check
@@ -81,12 +80,10 @@ jobs:
 
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # ratchet:actions/cache/save@v6.1.0
         with:
-          key:
-            spotless-gradle-${{ runner.os }}-${{ hashFiles( 'android/**/*.gradle*',
-            'android/gradle/**' )}}-${{ github.run_id }}
           path: |
             ~/.gradle/caches
             !~/.gradle/**/*.lock
             !~/.gradle/**/gc.properties
             ~/.gradle/wrapper
             ~/.m2/repository
+          key: ${{ github.workflow }}-gradle-${{ github.ref_name }}-${{ github.run_id }}
