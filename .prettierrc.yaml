@@ -3,5 +3,5 @@ proseWrap: always
 tabWidth: 2
 useTabs: false
 singleQuote: false
-trailingComma: es5
+trailingComma: all
 bracketSpacing: true

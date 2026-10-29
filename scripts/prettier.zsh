@@ -54,9 +54,23 @@ done
 typeset -a args=(
   "${tools_dir}/node_modules/.bin/prettier"
   "--config"
-  "${tools_dir}/prettierrc.yaml"
+  "${shhhhhh_root_dir}/.prettierrc.yaml"
   "--ignore-path"
-  "${tools_dir}/prettierignore.txt"
+  "${shhhhhh_root_dir}/.gitignore"
+  "--ignore-path"
+  "${shhhhhh_root_dir}/android/.gitignore"
+  "--ignore-path"
+  "${shhhhhh_root_dir}/android/app/.gitignore"
+  "--ignore-path"
+  "${shhhhhh_root_dir}/ios/.gitignore"
+  "--ignore-path"
+  "${shhhhhh_root_dir}/tools/prettier/.gitignore"
+  "--ignore-path"
+  "${shhhhhh_root_dir}/.prettierignore"
+  "--ignore-path"
+  "${shhhhhh_root_dir}/ios/shhhhhh/shhhhhh/Assets.xcassets/.prettierignore"
+  "--ignore-path"
+  "${shhhhhh_root_dir}/tools/prettier/.prettierignore"
 )
 
 if (( ! has_mode )); then
@@ -66,7 +80,7 @@ fi
 args+=("$@")
 
 if (( ! has_targets )); then
-  args+=(".")
+  args+=("${shhhhhh_root_dir}")
 fi
 
 say_args "${args[@]}"
