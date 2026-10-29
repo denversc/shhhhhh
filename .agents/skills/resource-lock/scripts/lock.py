@@ -18,7 +18,23 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-LOCK_DIR = Path("/tmp/antigravity_locks")
+def get_default_lock_dir() -> Path:
+    env_dir = os.environ.get("RESOURCE_LOCK_DIR")
+    if env_dir:
+        return Path(env_dir).resolve()
+    try:
+        repo_root = Path(__file__).resolve().parents[4]
+        return repo_root / ".agents" / "resource-locks"
+    except IndexError:
+        return Path(".agents/resource-locks").resolve()
+
+
+LOCK_DIR = get_default_lock_dir()
+
+
+def set_lock_dir(path: Path) -> None:
+    global LOCK_DIR
+    LOCK_DIR = path.resolve()
 
 
 def sanitize_resource_name(raw: str) -> str:
@@ -229,6 +245,8 @@ def cmd_acquire(args: argparse.Namespace, conversation_id: str, description: Opt
     daemon_cmd = [
         sys.executable,
         os.path.abspath(__file__),
+        "--lock-dir",
+        str(LOCK_DIR),
         "_daemon",
         "--resource",
         resource,
@@ -431,6 +449,11 @@ def main() -> int:
     )
     # Global arguments (can be placed before subcommand)
     parser.add_argument(
+        "--lock-dir",
+        dest="global_lock_dir",
+        help="Directory to store resource lock files (default: .agents/resource-locks).",
+    )
+    parser.add_argument(
         "--conversation-id",
         "-c",
         dest="global_conversation_id",
@@ -449,6 +472,11 @@ def main() -> int:
     p_run = subparsers.add_parser(
         "run",
         help="Execute a command with exclusive lock, automatically unlocking when finished.",
+    )
+    p_run.add_argument(
+        "--lock-dir",
+        dest="sub_lock_dir",
+        help="Directory to store resource lock files (default: .agents/resource-locks).",
     )
     p_run.add_argument(
         "--conversation-id",
@@ -485,6 +513,11 @@ def main() -> int:
     p_acquire = subparsers.add_parser(
         "acquire",
         help="Acquire a background lock lease across multiple conversational steps.",
+    )
+    p_acquire.add_argument(
+        "--lock-dir",
+        dest="sub_lock_dir",
+        help="Directory to store resource lock files (default: .agents/resource-locks).",
     )
     p_acquire.add_argument(
         "--conversation-id",
@@ -525,6 +558,11 @@ def main() -> int:
         help="Release an active background lock lease on a resource.",
     )
     p_release.add_argument(
+        "--lock-dir",
+        dest="sub_lock_dir",
+        help="Directory to store resource lock files (default: .agents/resource-locks).",
+    )
+    p_release.add_argument(
         "--conversation-id",
         "-c",
         dest="sub_conversation_id",
@@ -549,6 +587,11 @@ def main() -> int:
         help="Check the lock status of one or all resources.",
     )
     p_status.add_argument(
+        "--lock-dir",
+        dest="sub_lock_dir",
+        help="Directory to store resource lock files (default: .agents/resource-locks).",
+    )
+    p_status.add_argument(
         "--resource",
         "-r",
         help="Specific resource name to check (checks all if omitted).",
@@ -556,12 +599,18 @@ def main() -> int:
 
     # Internal Subcommand: _daemon
     p_daemon = subparsers.add_parser("_daemon", help=argparse.SUPPRESS)
+    p_daemon.add_argument("--lock-dir", dest="sub_lock_dir", default=None, help=argparse.SUPPRESS)
     p_daemon.add_argument("--resource", required=True)
     p_daemon.add_argument("--lease", type=float, required=True)
     p_daemon.add_argument("--fd", type=int, required=True)
 
     # Parse arguments
     args = parser.parse_args()
+
+    # Resolve lock_dir from subparser or global
+    lock_dir = getattr(args, "sub_lock_dir", None) or getattr(args, "global_lock_dir", None)
+    if lock_dir:
+        set_lock_dir(Path(lock_dir))
 
     # Internal daemon does not require conversation ID resolution
     if args.subcommand == "_daemon":
