@@ -23,8 +23,16 @@ typeset -r shhhhhh_root_dir="${0:A:h:h}"
 typeset -r tools_dir="${shhhhhh_root_dir}/tools/prettier"
 
 if [[ ! -x "${tools_dir}/node_modules/.bin/prettier" ]]; then
-  say_args "npm" "--prefix" "${tools_dir}" "ci"
-  npm --prefix "${tools_dir}" ci
+  typeset -a npm_install_args=(
+    "npm"
+    "--prefix"
+    "${tools_dir}"
+    "ci"
+    "--fund=false"
+    "--audit=false"
+  )
+  say_args "${npm_install_args[@]}"
+  "${npm_install_args[@]}"
 fi
 
 typeset has_mode=0
@@ -46,9 +54,9 @@ done
 typeset -a args=(
   "${tools_dir}/node_modules/.bin/prettier"
   "--config"
-  "${tools_dir}/.prettierrc.yaml"
+  "${tools_dir}/prettierrc.yaml"
   "--ignore-path"
-  "${tools_dir}/.prettierignore"
+  "${tools_dir}/prettierignore.txt"
 )
 
 if (( ! has_mode )); then
