@@ -83,5 +83,9 @@ if (( ! has_targets )); then
   args+=("${shhhhhh_root_dir}")
 fi
 
+typeset desired_cwd="${shhhhhh_root_dir}/tools/prettier"
+say_args cd "${desired_cwd}"
+cd "${desired_cwd}"
+
 say_args "${args[@]}"
 exec "${args[@]}" # zshellcheck disable=ZC1909
