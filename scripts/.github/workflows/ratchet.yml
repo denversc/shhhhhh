@@ -1,0 +1,38 @@
+name: ratchet
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/*.yml'
+  schedule:
+    - cron: '0 11 * * *' # Run nightly at 11am UTC (3am Pacific, 6am Eastern)
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  ratchet:
+    name: ratchet
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          show-progress: false
+          sparse-checkout: '.github/'
+          persist-credentials: false
+
+      - name: ratchet
+        uses: sethvargo/ratchet@27f7515b4648e179168f8f8ae2257636fdb03c48 # ratchet:sethvargo/ratchet@main
+        with:
+          files: .github/workflows/*.yml

@@ -1,0 +1,45 @@
+name: zshellcheck
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '**/*.zsh'
+  schedule:
+    - cron: '0 11 * * *' # Run nightly at 11am UTC (3am Pacific, 6am Eastern)
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  zshellcheck:
+    name: zshellcheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: actions/checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          show-progress: false
+          persist-credentials: false
+      - name: zshellcheck setup
+        run: |
+          set -xveuo pipefail
+          cd "$RUNNER_TEMP"
+          mkdir zshellcheck
+          cd zshellcheck
+          curl -fsSL -o zshellcheck.tar.gz https://github.com/afadesigns/zshellcheck/releases/download/v1.8.0/zshellcheck_Linux_x86_64.tar.gz
+          tar xvf zshellcheck.tar.gz
+      - name: zshellcheck
+        run: |
+          set -xveuo pipefail
+          find . -name '*.zsh' -exec "$RUNNER_TEMP/zshellcheck/zshellcheck" -severity style -no-color -no-banner -diff '{}' +
