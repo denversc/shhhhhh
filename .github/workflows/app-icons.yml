@@ -1,0 +1,63 @@
+name: app-icons
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/app-icons.yml"
+      - "scripts/generate_app_icons.zsh"
+      - "scripts/util/say.zsh"
+      - "assets/app_icon.svg"
+      - "tools/icon/**"
+      - "ios/shhhhhh/shhhhhh/Assets.xcassets/AppIcon.appiconset/**"
+      - "android/app/src/main/res/drawable/ic_launcher*.xml"
+      - "android/app/src/main/res/mipmap-*/**"
+  schedule:
+    - cron: "0 11 * * *" # Run nightly at 11am UTC (3am Pacific, 6am Eastern)
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  app-icons:
+    name: app-icons
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: git checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
+        with:
+          show-progress: false
+          persist-credentials: false
+
+      - name: setup node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # ratchet:actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: tools/icon/package-lock.json
+
+      - name: zsh install
+        run: sudo apt install zsh
+
+      - name: generate app icons
+        run: ./scripts/generate_app_icons.zsh
+
+      - name: verify clean git state
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "Error: Uncommitted changes detected after running scripts/generate_app_icons.zsh:" >&2
+            echo "Please run './scripts/generate_app_icons.zsh' locally and commit the updated icon files." >&2
+            git status --porcelain
+            git diff
+            exit 1
+          fi
