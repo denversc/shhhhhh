@@ -19,6 +19,31 @@ setopt errexit nounset pipefail extendedglob
 
 source "${0:A:h}/util/say.zsh"
 
+typeset ignore_x86_cpu_requirement=0
+
+for arg in "$@"; do
+  if [[ "$arg" == "--ignore-x86-cpu-requirement" ]]; then
+    ignore_x86_cpu_requirement=1
+  elif [[ "$arg" == ("--help"|"-h") ]]; then
+    say "Usage: ${0:t} [--ignore-x86-cpu-requirement]"
+    exit 0
+  else
+    say_error "Unknown argument: $arg" >&2
+    say "Run with --help for help" >&2
+    exit 1
+  fi
+done
+
+typeset cpu_arch
+cpu_arch="$(uname -m)"
+if (( ! ignore_x86_cpu_requirement )) && [[ "$cpu_arch" != ("x86_64"|"amd64") ]]; then
+  say_error "x86_64 CPU is required, but detected ${cpu_arch}" >&2
+  say "This requirement is to avoid a cross-architecture floating-point/SIMD rounding" >&2
+  say "divergence (ARM NEON vs x86 SSE) when rasterizing SVGs." >&2
+  say "Specify --ignore-x86-cpu-requirement to bypass this check." >&2
+  exit 1
+fi
+
 typeset -r shhhhhh_root_dir="${0:A:h:h}"
 typeset -r master_svg="${shhhhhh_root_dir}/assets/app_icon.svg"
 typeset -r tools_dir="${shhhhhh_root_dir}/tools/icon"
