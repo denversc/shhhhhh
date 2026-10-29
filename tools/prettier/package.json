@@ -3,6 +3,7 @@
   "private": true,
   "description": "Prettier toolchain for shhhhhh repository",
   "devDependencies": {
-    "prettier": "^3.9.10"
+    "prettier": "^3.9.10",
+    "prettier-plugin-toml": "^4.1.0"
   }
 }
