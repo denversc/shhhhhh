@@ -37,5 +37,7 @@ jobs:
         with:
           show-progress: false
           persist-credentials: false
+      - name: zsh install
+        run: apt install zsh
       - name: prettier
         run: ./scripts/prettier.zsh --check
