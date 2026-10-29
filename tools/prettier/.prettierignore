@@ -1,23 +1,17 @@
 # Version control & worktrees
-.git/
-worktrees/
+**/.git/**
+**/worktrees/**
 
 # Package dependencies
-**/node_modules/
-tools/prettier/package-lock.json
+**/node_modules/**
+**/package-lock.json
 
-# Android & Gradle build artifacts
-.gradle/
-android/build/
-android/.gradle/
-android/app/build/
-android/local.properties
-
-# iOS asset catalogs (managed directly by Xcode)
-**/*.xcassets/**/Contents.json
+# Native Android and iOS projects (no markdown/yaml; asset JSONs ignored)
+**/android/**
+**/ios/**
 
 # Internal agent locks
-.agents/resource-locks/
+**/.agents/resource-locks/**
 
 # OS metadata
-.DS_Store
+**/.DS_Store
