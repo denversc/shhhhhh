@@ -133,6 +133,24 @@ directory.
   scripts/ios_compile.zsh
   ```
 
+- **Install Debug Build to Simulator**:
+
+  ```bash
+  scripts/ios_install.zsh
+  ```
+
+- **Uninstall App from Simulator**:
+
+  ```bash
+  scripts/ios_uninstall.zsh
+  ```
+
+- **Stop App on Simulator**:
+
+  ```bash
+  scripts/ios_stop.zsh
+  ```
+
 - **Run Unit Tests**:
 
   ```bash
