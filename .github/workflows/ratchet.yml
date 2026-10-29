@@ -27,13 +27,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: git checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
         with:
           show-progress: false
           sparse-checkout: '.github/'
           persist-credentials: false
 
       - name: ratchet
-        uses: sethvargo/ratchet@27f7515b4648e179168f8f8ae2257636fdb03c48 # ratchet:sethvargo/ratchet@main
+        uses: sethvargo/ratchet@9ca118155b0f79464185703a50da367e111107cd # ratchet:sethvargo/ratchet@v0.12.0
         with:
           files: .github/workflows/*.yml
