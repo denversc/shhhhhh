@@ -12,6 +12,7 @@ on:
       - ".prettierrc.yaml"
       - "**/*.json"
       - "**/*.md"
+      - "**/*.toml"
       - "**/*.yaml"
       - "**/*.yml"
   schedule:
