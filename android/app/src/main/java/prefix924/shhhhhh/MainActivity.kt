@@ -1,14 +1,18 @@
 package prefix924.shhhhhh
 
+import android.animation.ObjectAnimator
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Bundle
 import android.view.HapticFeedbackConstants
+import android.view.View
+import android.view.animation.PathInterpolator
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.animation.doOnEnd
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -266,6 +270,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        splashScreen.setOnExitAnimationListener { splashScreenView ->
+            val fadeOut = ObjectAnimator.ofFloat(splashScreenView, View.ALPHA, 1f, 0f).apply {
+                interpolator = PathInterpolator(0.4f, 0f, 0.2f, 1f)
+                duration = 250L
+                doOnEnd { splashScreenView.remove() }
+            }
+            fadeOut.start()
+        }
 
         val loadedKeyPair = appStorage.loadKeyPair()
         val completedOnboarding = appStorage.hasCompletedOnboarding()
