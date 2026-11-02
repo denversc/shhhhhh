@@ -63,9 +63,6 @@ jobs:
       - name: select Xcode
         run: sudo xcode-select --switch /Applications/Xcode_27.app
 
-      - name: compile iOS app target
-        run: ./scripts/ios_compile.zsh
-
       - name: run full unit test suite on iOS Simulator
         run: ./scripts/ios_unit_tests.zsh
 
