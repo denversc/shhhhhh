@@ -9,8 +9,6 @@ import CryptoKit
 import Foundation
 import ShhhhhhCore
 
-public typealias AppStorage = ShhhhhhCore.AppStorage
-
 /// Errors that can occur during persistent storage operations.
 public enum AppStorageError: LocalizedError, Equatable {
   case keychainSaveFailed
@@ -26,9 +24,9 @@ public enum AppStorageError: LocalizedError, Equatable {
   }
 }
 
-/// Production `AppStorage` implementation backed by iOS Keychain for sensitive key material
+/// Production `KeyContactStorage` implementation backed by iOS Keychain for sensitive key material
 /// and `UserDefaults` for public identity metadata, preferences, and contacts.
-public final class KeychainAppStorage: AppStorage, @unchecked Sendable {
+public final class KeychainAppStorage: KeyContactStorage, @unchecked Sendable {
   public static let shared = KeychainAppStorage()
 
   public static let accountPrivateKey = "user_private_key"
@@ -149,7 +147,7 @@ public final class KeychainAppStorage: AppStorage, @unchecked Sendable {
     }
   }
 
-  // MARK: - AppStorage Unified Preferences
+  // MARK: - KeyContactStorage Unified Preferences
 
   public func getTheme() -> String? {
     userDefaults.string(forKey: Self.keyTheme)

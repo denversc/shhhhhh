@@ -13,9 +13,9 @@ import Foundation
   import Crypto
 #endif
 
-/// In-memory implementation of `AppStorage` designed for unit tests, previews,
+/// In-memory implementation of `KeyContactStorage` designed for unit tests, previews,
 /// and isolated execution contexts.
-public final class InMemoryAppStorage: AppStorage, @unchecked Sendable {
+public final class InMemoryAppStorage: KeyContactStorage, @unchecked Sendable {
   private let lock = NSLock()
   private var privateKeyData: Data?
   private var publicKeyBase64Url: String?
@@ -107,7 +107,7 @@ public final class InMemoryAppStorage: AppStorage, @unchecked Sendable {
     contacts.removeAll { $0.id == id }
   }
 
-  // MARK: - AppStorage Unified Preferences
+  // MARK: - KeyContactStorage Unified Preferences
 
   public func getTheme() -> String? {
     lock.lock()

@@ -1,5 +1,5 @@
 //
-//  AppStorage.swift
+//  KeyContactStorage.swift
 //  ShhhhhhCore
 //
 //  Created by Denver Coneybeare on 2026-10-27.
@@ -30,7 +30,7 @@ public protocol ContactStorage: AnyObject, Sendable {
 }
 
 /// Unified application storage interface for keys, contacts, and preferences.
-public protocol AppStorage: KeyStorage, ContactStorage {
+public protocol KeyContactStorage: KeyStorage, ContactStorage {
   func getTheme() -> String?
   func setTheme(_ theme: String)
   func clearAll()

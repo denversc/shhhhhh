@@ -11,7 +11,7 @@ import UIKit
 
 /// Sheet presenting user's public key, contact selection list, and affordance to add contacts.
 public struct ContactSelectionSheet: View {
-  public let storage: AppStorage
+  public let storage: KeyContactStorage
   public let userKeyPair: CryptoKeyPair?
   public let selectedContact: String
   public let selectedContactRecord: ContactRecord?
@@ -26,7 +26,7 @@ public struct ContactSelectionSheet: View {
   @Environment(\.dismiss) private var dismiss
 
   public init(
-    storage: AppStorage = KeychainAppStorage.shared,
+    storage: KeyContactStorage = KeychainAppStorage.shared,
     userKeyPair: CryptoKeyPair?,
     selectedContact: String = "Myself (This Device)",
     selectedContactRecord: ContactRecord? = nil,
