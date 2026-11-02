@@ -11,10 +11,14 @@ import XCTest
 
 @testable import ShhhhhhCore
 
-#if canImport(Darwin)
+#if canImport(CryptoKit)
   import CryptoKit
-#else
+#elseif os(Linux)
   import Crypto
+#else
+  #error(
+    "ShhhhhhCore only supports Apple platforms (CryptoKit) and Linux (swift-crypto). Support for other platforms is technically possible (swift-crypto supports them) but was omitted for lack of need. If needed, ask an AI coding agent to add this platform to the swift-crypto dependency condition in ios/ShhhhhhCore/Package.swift and to every '#elseif os(Linux)' crypto import in ShhhhhhCore."
+  )
 #endif
 
 struct ShhhhhhCoreTests {
