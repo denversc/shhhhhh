@@ -7,15 +7,26 @@ formats a scorecard in Toronto local time, and posts it as a comment to a design
 GitHub tracking issue.
 """
 
+from __future__ import annotations
+
 import argparse
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import json
 import os
+from pathlib import Path
 import sys
 import urllib.error
 import urllib.request
 import zoneinfo
+
+import yaml
+
+
+@dataclass(frozen=True)
+class ScheduledWorkflow:
+  name: str
+  file_path: str
 
 
 @dataclass(frozen=True)
@@ -40,6 +51,7 @@ class WorkflowRun:
   conclusion: str | None
   created_at_utc: datetime
   url: str
+  workflow_path: str = ""
   failed_jobs: tuple[FailedJob, ...] = ()
 
   @property
@@ -131,14 +143,67 @@ def fetch_scheduled_runs(
         conclusion=conclusion,
         created_at_utc=created_at_utc,
         url=r.get("html_url", ""),
+        workflow_path=r.get("path", ""),
         failed_jobs=failed_jobs,
       )
     )
   return runs
 
 
+def discover_scheduled_workflows(workflows_dir: Path) -> list[ScheduledWorkflow]:
+  """Read workflow YAML files in workflows_dir and return workflows with a scheduled trigger."""
+  scheduled: list[ScheduledWorkflow] = []
+  patterns = ("*.yml", "*.yaml")
+  workflow_files: list[Path] = []
+  for pattern in patterns:
+    workflow_files.extend(workflows_dir.glob(pattern))
+
+  for file_path in sorted(workflow_files):
+    try:
+      with open(file_path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    except Exception as err:
+      print(f"Warning: Failed to parse YAML file {file_path}: {err}", file=sys.stderr)
+      continue
+
+    if not isinstance(data, dict):
+      continue
+
+    on_clause = data.get("on") if "on" in data else data.get(True)
+    has_schedule = False
+    if isinstance(on_clause, dict):
+      has_schedule = "schedule" in on_clause
+    elif isinstance(on_clause, list):
+      has_schedule = "schedule" in on_clause
+    elif isinstance(on_clause, str):
+      has_schedule = on_clause == "schedule"
+
+    if has_schedule:
+      name = data.get("name") or file_path.stem
+      scheduled.append(ScheduledWorkflow(name=str(name), file_path=str(file_path)))
+
+  return sorted(scheduled, key=lambda w: w.name)
+
+
+def find_missing_scheduled_workflows(
+  expected_workflows: list[ScheduledWorkflow],
+  runs: list[WorkflowRun],
+) -> list[ScheduledWorkflow]:
+  """Identify scheduled workflows that have no runs in the provided list."""
+  executed_names = {r.name for r in runs}
+  executed_paths = {Path(r.workflow_path).name for r in runs if r.workflow_path}
+
+  missing: list[ScheduledWorkflow] = []
+  for w in expected_workflows:
+    wf_filename = Path(w.file_path).name
+    if w.name not in executed_names and wf_filename not in executed_paths:
+      missing.append(w)
+  return sorted(missing, key=lambda w: w.name)
+
+
 def format_summary_markdown(
   runs: list[WorkflowRun],
+  missing_workflows: list[ScheduledWorkflow],
   tz: zoneinfo.ZoneInfo,
   now_utc: datetime,
 ) -> str:
@@ -147,7 +212,7 @@ def format_summary_markdown(
   tz_name = now_local.strftime("%Z")
   today_str = now_local.strftime("%Y-%m-%d")
 
-  total_count = len(runs)
+  total_count = len(runs) + len(missing_workflows)
   success_count = sum(1 for r in runs if r.status == "completed" and r.conclusion == "success")
   pct = int((success_count / total_count * 100) if total_count > 0 else 0)
   status_icon = "✅" if total_count > 0 and success_count == total_count else "❌"
@@ -167,12 +232,15 @@ def format_summary_markdown(
     local_time_str = r.created_at_utc.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S")
     lines.append(f"| `{r.name}` | {r.display_status} | {local_time_str} | [Run #{r.id}]({r.url}) |")
 
+  for mw in missing_workflows:
+    lines.append(f"| `{mw.name}` | ❌ missing | — | — |")
+
   lines.append("")
   lines.append(f"*Note: All dates and times are expressed in time zone {tz_name}.*")
 
-  # If any failures occurred, list job and step details
+  # If any failures occurred, list job and step details as well as missing workflows
   failing_runs = [r for r in runs if r.status == "completed" and r.conclusion != "success"]
-  if failing_runs:
+  if failing_runs or missing_workflows:
     lines.append("")
     lines.append("### Failures")
     for fr in failing_runs:
@@ -187,6 +255,8 @@ def format_summary_markdown(
           lines.append(f"  - Job [`{job.name}`]({job.url}): failed at {step_details}")
       else:
         lines.append("  - Job details unavailable.")
+    for mw in missing_workflows:
+      lines.append(f"- **`{mw.name}`**: No scheduled runs in the past 24 hours.")
 
   return "\n".join(lines)
 
@@ -197,6 +267,15 @@ def post_issue_comment(repo: str, issue_number: int, body: str, token: str) -> s
   payload = json.dumps({"body": body}).encode("utf-8")
   result = make_github_request(url, token, data=payload)
   return result.get("html_url", "")
+
+
+def get_default_workflows_dir() -> Path:
+  """Get default path to .github/workflows directory."""
+  repo_root = Path(__file__).resolve().parent.parent.parent
+  candidate = repo_root / ".github" / "workflows"
+  if candidate.is_dir():
+    return candidate
+  return Path.cwd() / ".github" / "workflows"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -234,6 +313,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     help="Number of preceding hours to include (default: 24).",
   )
   parser.add_argument(
+    "--workflows-dir",
+    type=Path,
+    default=None,
+    help=(
+      "Path to .github/workflows directory. "
+      "Defaults to auto-detecting .github/workflows in repo root."
+    ),
+  )
+  parser.add_argument(
     "--dry-run",
     action="store_true",
     help="Print the generated markdown to stdout without posting to GitHub.",
@@ -257,6 +345,17 @@ def main() -> None:
     print(f"Error: Invalid timezone '{args.timezone}': {err}", file=sys.stderr)
     sys.exit(1)
 
+  workflows_dir = args.workflows_dir or get_default_workflows_dir()
+  expected_workflows: list[ScheduledWorkflow] = []
+  if workflows_dir.is_dir():
+    expected_workflows = discover_scheduled_workflows(workflows_dir)
+    print(
+      f"Discovered {len(expected_workflows)} scheduled workflows in {workflows_dir}.",
+      file=sys.stderr,
+    )
+  else:
+    print(f"Warning: Workflows directory '{workflows_dir}' not found.", file=sys.stderr)
+
   now_utc = datetime.now(timezone.utc)
   cutoff_utc = now_utc - timedelta(hours=args.hours)
 
@@ -270,7 +369,20 @@ def main() -> None:
     file=sys.stderr,
   )
 
-  comment_markdown = format_summary_markdown(runs=runs, tz=tz, now_utc=now_utc)
+  missing_workflows = find_missing_scheduled_workflows(expected_workflows, runs)
+  if missing_workflows:
+    missing_names = ", ".join(f"'{w.name}'" for w in missing_workflows)
+    print(
+      f"Error: {len(missing_workflows)} scheduled workflow(s) missing runs in the past {args.hours} hours: {missing_names}",
+      file=sys.stderr,
+    )
+
+  comment_markdown = format_summary_markdown(
+    runs=runs,
+    missing_workflows=missing_workflows,
+    tz=tz,
+    now_utc=now_utc,
+  )
 
   if args.dry_run:
     print("\n--- [DRY RUN] Generated Comment ---\n")
