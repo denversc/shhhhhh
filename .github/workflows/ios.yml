@@ -26,7 +26,8 @@ jobs:
   ubuntu-gate:
     name: ubuntu-gate
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # TODO: cache some/all of the build artifacts to improve runtimes, especially the boringssl build
+    timeout-minutes: 15
     steps:
       - name: git checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
