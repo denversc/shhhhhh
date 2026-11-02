@@ -150,13 +150,33 @@ def fetch_scheduled_runs(
   return runs
 
 
-def discover_scheduled_workflows(workflows_dir: Path) -> list[ScheduledWorkflow]:
+def is_workflow_excluded(
+  name: str, file_path_or_name: str, excluded_set: set[str]
+) -> bool:
+  """Check if a workflow matches any entry in excluded_set by name or filename."""
+  if not excluded_set:
+    return False
+  path_obj = Path(file_path_or_name)
+  candidates = {
+    name.lower(),
+    path_obj.name.lower(),
+    path_obj.stem.lower(),
+  }
+  return not candidates.isdisjoint(excluded_set)
+
+
+def discover_scheduled_workflows(
+  workflows_dir: Path,
+  exclude_workflows: set[str] | None = None,
+) -> list[ScheduledWorkflow]:
   """Read workflow YAML files in workflows_dir and return workflows with a scheduled trigger."""
   scheduled: list[ScheduledWorkflow] = []
   patterns = ("*.yml", "*.yaml")
   workflow_files: list[Path] = []
   for pattern in patterns:
     workflow_files.extend(workflows_dir.glob(pattern))
+
+  excluded_set = {x.lower() for x in exclude_workflows} if exclude_workflows else set()
 
   for file_path in sorted(workflow_files):
     try:
@@ -179,8 +199,9 @@ def discover_scheduled_workflows(workflows_dir: Path) -> list[ScheduledWorkflow]
       has_schedule = on_clause == "schedule"
 
     if has_schedule:
-      name = data.get("name") or file_path.stem
-      scheduled.append(ScheduledWorkflow(name=str(name), file_path=str(file_path)))
+      name = str(data.get("name") or file_path.stem)
+      if not is_workflow_excluded(name, str(file_path), excluded_set):
+        scheduled.append(ScheduledWorkflow(name=name, file_path=str(file_path)))
 
   return sorted(scheduled, key=lambda w: w.name)
 
@@ -328,6 +349,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ),
   )
   parser.add_argument(
+    "--exclude-workflow",
+    "--exclude",
+    dest="exclude_workflows",
+    action="append",
+    default=[],
+    help=(
+      "Workflow name or filename to exclude from the report (can be specified multiple times)."
+    ),
+  )
+  parser.add_argument(
     "--dry-run",
     action="store_true",
     help="Print the generated markdown to stdout without posting to GitHub.",
@@ -351,10 +382,14 @@ def main() -> None:
     print(f"Error: Invalid timezone '{args.timezone}': {err}", file=sys.stderr)
     sys.exit(1)
 
+  excluded_set = {x.lower() for x in args.exclude_workflows}
+
   workflows_dir = args.workflows_dir or get_default_workflows_dir()
   expected_workflows: list[ScheduledWorkflow] = []
   if workflows_dir.is_dir():
-    expected_workflows = discover_scheduled_workflows(workflows_dir)
+    expected_workflows = discover_scheduled_workflows(
+      workflows_dir, exclude_workflows=excluded_set
+    )
     print(
       f"Discovered {len(expected_workflows)} scheduled workflows in {workflows_dir}.",
       file=sys.stderr,
@@ -370,6 +405,14 @@ def main() -> None:
     file=sys.stderr,
   )
   runs = fetch_scheduled_runs(repo=args.repo, token=args.token, cutoff_utc=cutoff_utc)
+
+  if excluded_set:
+    runs = [
+      r
+      for r in runs
+      if not is_workflow_excluded(r.name, r.workflow_path, excluded_set)
+    ]
+
   print(
     f"Found {len(runs)} scheduled runs in the preceding {args.hours} hours.",
     file=sys.stderr,

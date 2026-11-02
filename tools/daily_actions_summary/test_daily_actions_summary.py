@@ -17,6 +17,8 @@ from daily_actions_summary import (
   discover_scheduled_workflows,
   find_missing_scheduled_workflows,
   format_summary_markdown,
+  is_workflow_excluded,
+  parse_args,
 )
 
 
@@ -77,6 +79,54 @@ on: [push, schedule]
       names = [w.name for w in results]
       self.assertEqual(names, ["First Scheduled", "List Schedule", "no_name"])
       self.assertEqual(len(results), 3)
+
+      # Test with exclusion
+      filtered = discover_scheduled_workflows(
+        dir_path, exclude_workflows={"first scheduled", "no_name.yaml"}
+      )
+      self.assertEqual([w.name for w in filtered], ["List Schedule"])
+
+  def test_is_workflow_excluded(self) -> None:
+    excluded = {"daily-actions-summary", "foo.yml"}
+    self.assertTrue(
+      is_workflow_excluded(
+        name="daily-actions-summary",
+        file_path_or_name=".github/workflows/daily-actions-summary.yml",
+        excluded_set=excluded,
+      )
+    )
+    self.assertTrue(
+      is_workflow_excluded(
+        name="different-name",
+        file_path_or_name=".github/workflows/foo.yml",
+        excluded_set=excluded,
+      )
+    )
+    self.assertFalse(
+      is_workflow_excluded(
+        name="android",
+        file_path_or_name=".github/workflows/android.yml",
+        excluded_set=excluded,
+      )
+    )
+
+  def test_parse_args_exclude_workflows_multiple(self) -> None:
+    args = parse_args(
+      [
+        "--token",
+        "dummy",
+        "--exclude-workflow",
+        "daily-actions-summary",
+        "--exclude-workflow",
+        "ios",
+        "--exclude",
+        "android",
+      ]
+    )
+    self.assertEqual(
+      args.exclude_workflows,
+      ["daily-actions-summary", "ios", "android"],
+    )
 
 
 class FindMissingScheduledWorkflowsTest(unittest.TestCase):
