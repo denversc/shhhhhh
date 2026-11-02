@@ -20,6 +20,8 @@ import Testing
   )
 #endif
 
+private typealias CryptoError = ShhhhhhCore.CryptoError
+
 struct ShhhhhhCoreTests {
 
   // MARK: - EntropyAccumulator Tests
