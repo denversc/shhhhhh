@@ -143,30 +143,6 @@ enum class DecryptError(val message: String) {
   ),
 }
 
-internal val CryptoKeyPairSaver: Saver<CryptoKeyPair?, Any> =
-  listSaver(
-    save = { keyPair ->
-      if (keyPair != null) {
-        listOf(
-          Base64.getUrlEncoder().withoutPadding().encodeToString(keyPair.privateKey),
-          Base64.getUrlEncoder().withoutPadding().encodeToString(keyPair.publicKey),
-        )
-      } else {
-        emptyList()
-      }
-    },
-    restore = { list ->
-      if (list.size >= 2) {
-        CryptoKeyPair(
-          privateKey = Base64.getUrlDecoder().decode(list[0]),
-          publicKey = Base64.getUrlDecoder().decode(list[1]),
-        )
-      } else {
-        null
-      }
-    },
-  )
-
 class MainActivity : ComponentActivity() {
   private val appStorage: AppStorage by lazy { AndroidAppStorage.create(applicationContext) }
 
