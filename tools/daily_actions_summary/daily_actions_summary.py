@@ -300,7 +300,7 @@ def format_summary_markdown(
     f"**Overall Status**: {status_str}",
     "**Window**: Preceding 24 hours",
     "",
-    "| Workflow | Status | Elapsed Time | Run Created | Run Link |",
+    "| Workflow | Status | Runtime | Run Created | Run Link |",
     "| :--- | :--- | :--- | :--- | :--- |",
   ]
 
