@@ -17,7 +17,7 @@ import urllib.error
 import urllib.request
 import zoneinfo
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -149,7 +149,7 @@ def fetch_scheduled_runs(
       continue
     r = cast("dict[str, Any]", raw_run)
     created_at_raw = str(r.get("created_at", ""))
-    created_at_utc = datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
+    created_at_utc = datetime.fromisoformat(created_at_raw)
     if created_at_utc < cutoff_utc:
       continue
 
@@ -420,7 +420,7 @@ def main() -> None:
   else:
     print(f"Warning: Workflows directory '{workflows_dir}' not found.", file=sys.stderr)
 
-  now_utc = datetime.now(timezone.utc)
+  now_utc = datetime.now(UTC)
   cutoff_utc = now_utc - timedelta(hours=args.hours)
 
   print(

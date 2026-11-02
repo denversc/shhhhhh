@@ -6,7 +6,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 import zoneinfo
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from daily_actions_summary import (
@@ -142,7 +142,7 @@ class FindMissingScheduledWorkflowsTest(unittest.TestCase):
         name="wf1",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime.now(timezone.utc),
+        created_at_utc=datetime.now(UTC),
         url="http://example.com/1",
       ),
       WorkflowRun(
@@ -150,7 +150,7 @@ class FindMissingScheduledWorkflowsTest(unittest.TestCase):
         name="wf2",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime.now(timezone.utc),
+        created_at_utc=datetime.now(UTC),
         url="http://example.com/2",
       ),
       WorkflowRun(
@@ -158,7 +158,7 @@ class FindMissingScheduledWorkflowsTest(unittest.TestCase):
         name="wf3",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime.now(timezone.utc),
+        created_at_utc=datetime.now(UTC),
         url="http://example.com/3",
       ),
     ]
@@ -172,7 +172,7 @@ class FindMissingScheduledWorkflowsTest(unittest.TestCase):
         name="wf1",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime.now(timezone.utc),
+        created_at_utc=datetime.now(UTC),
         url="http://example.com/1",
       ),
     ]
@@ -187,7 +187,7 @@ class FindMissingScheduledWorkflowsTest(unittest.TestCase):
         name="wf1",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime.now(timezone.utc),
+        created_at_utc=datetime.now(UTC),
         url="http://example.com/1",
       ),
       WorkflowRun(
@@ -195,7 +195,7 @@ class FindMissingScheduledWorkflowsTest(unittest.TestCase):
         name="Different Display Name",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime.now(timezone.utc),
+        created_at_utc=datetime.now(UTC),
         url="http://example.com/2",
         workflow_path=".github/workflows/wf2.yml",
       ),
@@ -207,7 +207,7 @@ class FindMissingScheduledWorkflowsTest(unittest.TestCase):
 class FormatSummaryMarkdownTest(unittest.TestCase):
   def setUp(self) -> None:
     self.tz = zoneinfo.ZoneInfo("America/Toronto")
-    self.now_utc = datetime(2026, 11, 2, 18, 0, 0, tzinfo=timezone.utc)
+    self.now_utc = datetime(2026, 11, 2, 18, 0, 0, tzinfo=UTC)
 
   def test_all_passed_no_missing(self) -> None:
     runs = [
@@ -216,7 +216,7 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
         name="lint",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=timezone.utc),
+        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=UTC),
         url="http://example.com/101",
       ),
     ]
@@ -233,7 +233,7 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
         name="lint",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=timezone.utc),
+        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=UTC),
         url="http://example.com/101",
       ),
     ]
@@ -258,7 +258,7 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
         name="test-suite",
         status="completed",
         conclusion="failure",
-        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=timezone.utc),
+        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=UTC),
         url="http://example.com/102",
         failed_jobs=(
           FailedJob(
@@ -288,7 +288,7 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
         name="zulu",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=timezone.utc),
+        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=UTC),
         url="http://example.com/1",
       ),
       WorkflowRun(
@@ -296,7 +296,7 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
         name="bravo",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=timezone.utc),
+        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=UTC),
         url="http://example.com/2",
       ),
     ]
