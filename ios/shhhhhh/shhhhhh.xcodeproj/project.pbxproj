@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		EDB8AD64309156DC00174F4E /* ShhhhhhCore in Frameworks */ = {isa = PBXBuildFile; productRef = EDB8AD62309156DC00174F4E /* ShhhhhhCore */; };
 		EDB8AD65309156DC00174F4E /* ShhhhhhCore in Frameworks */ = {isa = PBXBuildFile; productRef = EDB8AD63309156DC00174F4E /* ShhhhhhCore */; };
+		EDB8AD66309156DC00174F4E /* ShhhhhhCore in Embed Frameworks */ = {isa = PBXBuildFile; productRef = EDB8AD62309156DC00174F4E /* ShhhhhhCore */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -27,6 +28,20 @@
 			remoteInfo = shhhhhh;
 		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		EDB8AD67309156DC00174F4E /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				EDB8AD66309156DC00174F4E /* ShhhhhhCore in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		EDB8AD39309156D900174F4E /* shhhhhh.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = shhhhhh.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -103,6 +118,7 @@
 				EDB8AD35309156D900174F4E /* Sources */,
 				EDB8AD36309156D900174F4E /* Frameworks */,
 				EDB8AD37309156D900174F4E /* Resources */,
+				EDB8AD67309156DC00174F4E /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
