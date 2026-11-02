@@ -43,9 +43,39 @@ jobs:
           pip install -r tools/daily_actions_summary/requirements.txt
 
       - name: ruff check
+        id: lint_check
+        continue-on-error: true
         working-directory: tools/daily_actions_summary
         run: |
           ruff check --diff --verbose --no-cache --output-format=github --exit-non-zero-on-fix
+
+      - name: generate lint patch on failure
+        if: steps.lint_check.outcome == 'failure'
+        working-directory: tools/daily_actions_summary
+        run: |
+          ruff check --fix --no-cache || true
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git diff > ../../lint.patch
+          fi
+
+      - name: upload lint patch artifact
+        if: steps.lint_check.outcome == 'failure'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # ratchet:actions/upload-artifact@v7
+        with:
+          name: lint-patch
+          path: lint.patch
+          retention-days: 5
+          if-no-files-found: ignore
+
+      - name: fail job if check failed
+        if: steps.lint_check.outcome == 'failure'
+        run: |
+          if [[ -f lint.patch ]]; then
+            echo "::error::Authoritative ruff lint check failed. Download and apply the 'lint-patch' artifact or run ruff check --fix locally."
+          else
+            echo "::error::Authoritative ruff lint check failed. No automatic fixes available; inspect the log for details."
+          fi
+          exit 1
 
   format:
     name: format
@@ -67,10 +97,33 @@ jobs:
         run: |
           pip install -r tools/daily_actions_summary/requirements.txt
 
-      - name: ruff format
+      - name: ruff format check
+        id: format_check
+        continue-on-error: true
         working-directory: tools/daily_actions_summary
         run: |
           ruff format --diff --verbose --no-cache
+
+      - name: generate format patch on failure
+        if: steps.format_check.outcome == 'failure'
+        working-directory: tools/daily_actions_summary
+        run: |
+          ruff format --verbose --no-cache
+          git diff > ../../format.patch
+
+      - name: upload format patch artifact
+        if: steps.format_check.outcome == 'failure'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # ratchet:actions/upload-artifact@v7
+        with:
+          name: format-patch
+          path: format.patch
+          retention-days: 5
+
+      - name: fail job if check failed
+        if: steps.format_check.outcome == 'failure'
+        run: |
+          echo "::error::Authoritative ruff format check failed. Download and apply the 'format-patch' artifact or run ruff format locally."
+          exit 1
 
   type-check:
     name: type-check
