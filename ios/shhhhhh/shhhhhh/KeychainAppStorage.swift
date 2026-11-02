@@ -7,6 +7,7 @@
 
 import CryptoKit
 import Foundation
+import ShhhhhhCore
 
 /// Errors that can occur during persistent storage operations.
 public enum AppStorageError: LocalizedError, Equatable {
