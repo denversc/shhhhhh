@@ -49,7 +49,7 @@ jobs:
   macos-authoritative-verification:
     name: macos-simulator-verification
     needs: [ubuntu-gate]
-    runs-on: macos-latest
+    runs-on: xcode-27
     timeout-minutes: 15
     steps:
       - name: git checkout
