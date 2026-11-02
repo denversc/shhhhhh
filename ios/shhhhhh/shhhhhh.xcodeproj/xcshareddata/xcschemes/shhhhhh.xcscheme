@@ -27,8 +27,7 @@
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      shouldUseLaunchSchemeArgsEnv = "YES"
-      shouldAutocreateTestPlan = "YES">
+      shouldUseLaunchSchemeArgsEnv = "YES">
       <Testables>
          <TestableReference
             skipped = "NO">
@@ -38,16 +37,6 @@
                BuildableName = "shhhhhhTests.xctest"
                BlueprintName = "shhhhhhTests"
                ReferencedContainer = "container:shhhhhh.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
-         <TestableReference
-            skipped = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "ShhhhhhCoreTests"
-               BuildableName = "ShhhhhhCoreTests"
-               BlueprintName = "ShhhhhhCoreTests"
-               ReferencedContainer = "container:../ShhhhhhCore">
             </BuildableReference>
          </TestableReference>
          <TestableReference
