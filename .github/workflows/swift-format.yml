@@ -26,13 +26,44 @@ defaults:
 jobs:
   swift-format:
     name: swift-format
-    runs-on: macos-latest
-    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: git checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
         with:
           show-progress: false
           persist-credentials: false
-      - name: swift-format check
+
+      - name: zsh install
+        run: sudo apt install zsh
+
+      - name: setup swift
+        uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9 # ratchet:swift-actions/setup-swift@v3
+        with:
+          swift-version: "6.4"
+
+      - name: check formatting
+        id: format_check
+        continue-on-error: true
         run: ./scripts/swift_format.zsh --check
+
+      - name: generate format patch on failure
+        if: steps.format_check.outcome == 'failure'
+        run: |
+          ./scripts/swift_format.zsh --apply
+          git diff > format.patch
+
+      - name: upload format patch artifact
+        if: steps.format_check.outcome == 'failure'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # ratchet:actions/upload-artifact@v7
+        with:
+          name: format-patch
+          path: format.patch
+          retention-days: 5
+
+      - name: fail job if check failed
+        if: steps.format_check.outcome == 'failure'
+        run: |
+          echo "::error::Authoritative swift-format check failed. Download and apply the 'format-patch' artifact or run ./scripts/swift_format.zsh --apply locally."
+          exit 1
