@@ -43,6 +43,10 @@ jobs:
         run: |
           pip install -r tools/daily_actions_summary/requirements.txt
 
+      - name: run unit tests
+        run: |
+          python3 -m unittest discover -s tools/daily_actions_summary -p "test_*.py"
+
       - name: run daily actions summary
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
