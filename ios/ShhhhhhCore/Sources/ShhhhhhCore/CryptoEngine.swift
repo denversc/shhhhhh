@@ -47,7 +47,7 @@ public struct CryptoKeyPair: Equatable {
   /// Reconstitutes a CryptoKeyPair from 32 raw private key bytes.
   public init(rawRepresentation: Data) throws {
     guard rawRepresentation.count == CryptoEngine.keySizeBytes else {
-      throw CryptoError.invalidKeySize(
+      throw ShhhhhhCryptoError.invalidKeySize(
         expected: CryptoEngine.keySizeBytes, actual: rawRepresentation.count)
     }
     let priv = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: rawRepresentation)
@@ -115,7 +115,7 @@ public enum DecryptResult: Equatable {
 }
 
 /// Errors thrown by CryptoEngine operations.
-public enum CryptoError: LocalizedError, Equatable {
+public enum ShhhhhhCryptoError: LocalizedError, Equatable {
   case invalidKeySize(expected: Int, actual: Int)
   case invalidPayload(String)
   case authenticationFailed
@@ -174,7 +174,7 @@ public enum CryptoEngine {
   /// Derives the 32-byte raw X25519 public key from a 32-byte raw private key scalar.
   public static func derivePublicKey(fromPrivateKey rawPrivateKey: Data) throws -> Data {
     guard rawPrivateKey.count == keySizeBytes else {
-      throw CryptoError.invalidKeySize(expected: keySizeBytes, actual: rawPrivateKey.count)
+      throw ShhhhhhCryptoError.invalidKeySize(expected: keySizeBytes, actual: rawPrivateKey.count)
     }
     let priv = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: rawPrivateKey)
     return priv.publicKey.rawRepresentation
@@ -212,7 +212,7 @@ public enum CryptoEngine {
   /// Encodes 32 raw public key bytes to a 43-character unpadded Base64URL string.
   public static func encodePublicKeyBase64Url(_ publicKey: Data) throws -> String {
     guard publicKey.count == keySizeBytes else {
-      throw CryptoError.invalidKeySize(expected: keySizeBytes, actual: publicKey.count)
+      throw ShhhhhhCryptoError.invalidKeySize(expected: keySizeBytes, actual: publicKey.count)
     }
     return base64UrlEncode(publicKey)
   }
@@ -220,10 +220,10 @@ public enum CryptoEngine {
   /// Decodes a 43-character unpadded Base64URL string to 32 raw public key bytes.
   public static func decodePublicKeyBase64Url(_ base64Url: String) throws -> Data {
     guard let data = base64UrlDecode(base64Url) else {
-      throw CryptoError.invalidBase64
+      throw ShhhhhhCryptoError.invalidBase64
     }
     guard data.count == keySizeBytes else {
-      throw CryptoError.invalidKeySize(expected: keySizeBytes, actual: data.count)
+      throw ShhhhhhCryptoError.invalidKeySize(expected: keySizeBytes, actual: data.count)
     }
     return data
   }
@@ -246,7 +246,7 @@ public enum CryptoEngine {
   /// HKDF Expand step (RFC 5869): OKM = HKDF-Expand(PRK, info, L).
   public static func hkdfExpand(prk: Data, info: Data?, length: Int) throws -> Data {
     guard length >= 1 && length <= 255 * 32 else {
-      throw CryptoError.invalidPayload("Invalid HKDF output length: \(length)")
+      throw ShhhhhhCryptoError.invalidPayload("Invalid HKDF output length: \(length)")
     }
     let key = SymmetricKey(data: prk)
     var okm = Data()
@@ -310,10 +310,10 @@ public enum CryptoEngine {
   ) throws -> Data {
     let pLen = plaintext.count
     guard pLen <= 65533 else {
-      throw CryptoError.invalidPayload("Plaintext exceeds maximum 64KB limit")
+      throw ShhhhhhCryptoError.invalidPayload("Plaintext exceeds maximum 64KB limit")
     }
     guard targetSize >= pLen + 2 else {
-      throw CryptoError.invalidPayload("Target size smaller than framed payload")
+      throw ShhhhhhCryptoError.invalidPayload("Target size smaller than framed payload")
     }
 
     var buffer = Data(count: targetSize)
@@ -327,7 +327,7 @@ public enum CryptoEngine {
     if padCount > 0 {
       if let override = paddingBytesOverride {
         guard override.count >= padCount else {
-          throw CryptoError.invalidPayload(
+          throw ShhhhhhCryptoError.invalidPayload(
             "Padding override too short: expected \(padCount) bytes, got \(override.count)")
         }
         buffer.replaceSubrange((2 + pLen)..<targetSize, with: override.prefix(padCount))
@@ -343,11 +343,11 @@ public enum CryptoEngine {
   /// Decodes the v2 inner framed buffer and extracts the plaintext bytes.
   public static func decodeFramedPayload(_ decryptedBytes: Data) throws -> Data {
     guard decryptedBytes.count >= 2 else {
-      throw CryptoError.authenticationFailed
+      throw ShhhhhhCryptoError.authenticationFailed
     }
     let declaredLen = (Int(decryptedBytes[0]) << 8) | Int(decryptedBytes[1])
     guard declaredLen <= decryptedBytes.count - 2 else {
-      throw CryptoError.authenticationFailed
+      throw ShhhhhhCryptoError.authenticationFailed
     }
     return decryptedBytes.subdata(in: 2..<(2 + declaredLen))
   }
@@ -459,7 +459,8 @@ public enum CryptoEngine {
     recipientPublicKeyData: Data
   ) throws -> String {
     guard recipientPublicKeyData.count == keySizeBytes else {
-      throw CryptoError.invalidKeySize(expected: keySizeBytes, actual: recipientPublicKeyData.count)
+      throw ShhhhhhCryptoError.invalidKeySize(
+        expected: keySizeBytes, actual: recipientPublicKeyData.count)
     }
     let pubKey = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: recipientPublicKeyData)
     return try encrypt(plaintext, recipientPublicKey: pubKey)
@@ -486,10 +487,10 @@ public enum CryptoEngine {
     recipientPrivateKey: Curve25519.KeyAgreement.PrivateKey
   ) throws -> Data {
     guard let payload = base64UrlDecode(sealedBoxBase64) else {
-      throw CryptoError.invalidBase64
+      throw ShhhhhhCryptoError.invalidBase64
     }
     guard payload.count >= fixedOverheadBytes + 2, payload[0] == protocolVersion else {
-      throw CryptoError.authenticationFailed
+      throw ShhhhhhCryptoError.authenticationFailed
     }
 
     let aad = payload.prefix(headerSizeBytes)
@@ -502,14 +503,14 @@ public enum CryptoEngine {
       ephemeralPublicKey = try Curve25519.KeyAgreement.PublicKey(
         rawRepresentation: ephemeralPubBytes)
     } catch {
-      throw CryptoError.authenticationFailed
+      throw ShhhhhhCryptoError.authenticationFailed
     }
 
     let sharedSecret: SharedSecret
     do {
       sharedSecret = try recipientPrivateKey.sharedSecretFromKeyAgreement(with: ephemeralPublicKey)
     } catch {
-      throw CryptoError.authenticationFailed
+      throw ShhhhhhCryptoError.authenticationFailed
     }
 
     let symmetricKey = sharedSecret.hkdfDerivedSymmetricKey(
@@ -524,7 +525,7 @@ public enum CryptoEngine {
       let sealedBox = try ChaChaPoly.SealedBox(combined: nonceBytes + ciphertextWithTag)
       innerBuffer = try ChaChaPoly.open(sealedBox, using: symmetricKey, authenticating: aad)
     } catch {
-      throw CryptoError.authenticationFailed
+      throw ShhhhhhCryptoError.authenticationFailed
     }
 
     return try decodeFramedPayload(innerBuffer)
@@ -537,7 +538,7 @@ public enum CryptoEngine {
   ) throws -> String {
     let decryptedBytes = try decrypt(sealedBoxBase64, recipientPrivateKey: recipientPrivateKey)
     guard let string = String(data: decryptedBytes, encoding: .utf8) else {
-      throw CryptoError.invalidStringData
+      throw ShhhhhhCryptoError.invalidStringData
     }
     return string
   }
@@ -548,7 +549,7 @@ public enum CryptoEngine {
     recipientPrivateKeyData: Data
   ) throws -> Data {
     guard recipientPrivateKeyData.count == keySizeBytes else {
-      throw CryptoError.invalidKeySize(
+      throw ShhhhhhCryptoError.invalidKeySize(
         expected: keySizeBytes, actual: recipientPrivateKeyData.count)
     }
     let privKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: recipientPrivateKeyData)
@@ -561,7 +562,7 @@ public enum CryptoEngine {
     recipientPrivateKeyData: Data
   ) throws -> String {
     guard recipientPrivateKeyData.count == keySizeBytes else {
-      throw CryptoError.invalidKeySize(
+      throw ShhhhhhCryptoError.invalidKeySize(
         expected: keySizeBytes, actual: recipientPrivateKeyData.count)
     }
     let privKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: recipientPrivateKeyData)
