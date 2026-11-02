@@ -1,4 +1,12 @@
-# Creating the Python Virtualenv
+# Daily Actions Summary
+
+- [Creating the Python Virtualenv](#creating-the-python-virtualenv)
+- [Running Unit Tests](#running-unit-tests)
+- [Running the Code Formatter](#running-the-code-formatter)
+- [Running Type Checking](#running-type-checking)
+- [Running the Linter](#running-the-linter)
+
+## Creating the Python Virtualenv
 
 ```bash
 python3 -m venv venv
@@ -6,13 +14,13 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-# Running Unit Tests
+## Running Unit Tests
 
 ```bash
 python3 -m unittest discover -s . -p "test_*.py"
 ```
 
-# Running the Code Formatter
+## Running the Code Formatter
 
 Format files in-place:
 
@@ -33,13 +41,13 @@ gh run download <run-id> -n format-patch
 git apply format.patch
 ```
 
-# Running Type Checking
+## Running Type Checking
 
 ```bash
 pyright
 ```
 
-# Running the Linter
+## Running the Linter
 
 Check for lint errors:
 
