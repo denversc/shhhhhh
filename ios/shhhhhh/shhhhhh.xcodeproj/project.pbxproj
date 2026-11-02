@@ -6,6 +6,11 @@
 	objectVersion = 110;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		EDB8AD64309156DC00174F4E /* ShhhhhhCore in Frameworks */ = {isa = PBXBuildFile; productRef = EDB8AD62309156DC00174F4E /* ShhhhhhCore */; };
+		EDB8AD65309156DC00174F4E /* ShhhhhhCore in Frameworks */ = {isa = PBXBuildFile; productRef = EDB8AD63309156DC00174F4E /* ShhhhhhCore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		EDB8AD47309156DC00174F4E /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -51,11 +56,13 @@
 		EDB8AD36309156D900174F4E /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				EDB8AD64309156DC00174F4E /* ShhhhhhCore in Frameworks */,
 			);
 		};
 		EDB8AD43309156DC00174F4E /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				EDB8AD65309156DC00174F4E /* ShhhhhhCore in Frameworks */,
 			);
 		};
 		EDB8AD4D309156DC00174F4E /* Frameworks */ = {
@@ -103,6 +110,9 @@
 				EDB8AD3B309156D900174F4E /* shhhhhh */,
 			);
 			name = shhhhhh;
+			packageProductDependencies = (
+				EDB8AD62309156DC00174F4E /* ShhhhhhCore */,
+			);
 			productName = shhhhhh;
 			productReference = EDB8AD39309156D900174F4E /* shhhhhh.app */;
 			productType = "com.apple.product-type.application";
@@ -124,6 +134,9 @@
 				EDB8AD49309156DC00174F4E /* shhhhhhTests */,
 			);
 			name = shhhhhhTests;
+			packageProductDependencies = (
+				EDB8AD63309156DC00174F4E /* ShhhhhhCore */,
+			);
 			productName = shhhhhhTests;
 			productReference = EDB8AD46309156DC00174F4E /* shhhhhhTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -181,6 +194,9 @@
 			);
 			mainGroup = EDB8AD30309156D900174F4E;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				EDB8AD61309156DC00174F4E /* XCLocalSwiftPackageReference "../ShhhhhhCore" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = EDB8AD3A309156D900174F4E /* Products */;
 			projectDirPath = "";
@@ -548,6 +564,26 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		EDB8AD61309156DC00174F4E /* XCLocalSwiftPackageReference "../ShhhhhhCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../ShhhhhhCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		EDB8AD62309156DC00174F4E /* ShhhhhhCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EDB8AD61309156DC00174F4E /* XCLocalSwiftPackageReference "../ShhhhhhCore" */;
+			productName = ShhhhhhCore;
+		};
+		EDB8AD63309156DC00174F4E /* ShhhhhhCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EDB8AD61309156DC00174F4E /* XCLocalSwiftPackageReference "../ShhhhhhCore" */;
+			productName = ShhhhhhCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = EDB8AD31309156D900174F4E /* Project object */;
 	validationLevel = 1;
