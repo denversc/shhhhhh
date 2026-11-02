@@ -38,10 +38,10 @@ jobs:
       - name: zsh install
         run: sudo apt-get update && sudo apt-get install -y zsh
 
-      - name: setup swift
-        uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9 # ratchet:swift-actions/setup-swift@v3
-        with:
-          swift-version: "6.4"
+      - name: configure swift toolchain in PATH
+        run: |
+          swift --version
+          echo "${SWIFT_PATH:-/usr/share/swift/usr/bin}" >> "$GITHUB_PATH"
 
       - name: check formatting
         id: format_check
