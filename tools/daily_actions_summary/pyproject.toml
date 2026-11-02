@@ -1,11 +1,12 @@
 [project]
 name = "daily-actions-summary"
-requires-python = ">= 3.9"
+requires-python = ">= 3.15"
 
 [tool.pyright]
 include = ["**/*.py"]
 venvPath = "."
 venv = "venv"
+pythonVersion = "3.15"
 typeCheckingMode = "strict"
 
 [tool.ruff]
