@@ -245,8 +245,8 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
     )
     self.assertIn("### Scheduled Actions Summary: 2026-11-02 13:00", md)
     self.assertIn("❌ 1 / 3 Passed, 2 / 3 Failed", md)
-    self.assertIn("| `android` | ❌ missing | — | — |", md)
-    self.assertIn("| `ios` | ❌ missing | — | — |", md)
+    self.assertIn("| `android` | ❌ missing | — | — | — |", md)
+    self.assertIn("| `ios` | ❌ missing | — | — | — |", md)
     self.assertIn("### Failures", md)
     self.assertIn("- **`android`**: No scheduled runs in the past 24 hours.", md)
     self.assertIn("- **`ios`**: No scheduled runs in the past 24 hours.", md)
@@ -291,6 +291,8 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
         conclusion="success",
         created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=UTC),
         url="http://example.com/1",
+        run_started_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=UTC),
+        updated_at_utc=datetime(2026, 11, 2, 15, 12, 0, tzinfo=UTC),
       ),
       WorkflowRun(
         id=2,
@@ -299,6 +301,8 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
         conclusion="success",
         created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=UTC),
         url="http://example.com/2",
+        run_started_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=UTC),
+        updated_at_utc=datetime(2026, 11, 2, 15, 0, 35, tzinfo=UTC),
       ),
     ]
     missing = [
@@ -310,12 +314,104 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
     )
     table_lines = [line for line in md.splitlines() if line.startswith("| `")]
     expected_order = [
-      "| `alpha` | ❌ missing | — | — |",
-      "| `bravo` | ✅ success | 2026-11-02 10:00:00 | [Run #2](http://example.com/2) |",
-      "| `charlie` | ❌ missing | — | — |",
-      "| `zulu` | ✅ success | 2026-11-02 10:00:00 | [Run #1](http://example.com/1) |",
+      "| `alpha` | ❌ missing | — | — | — |",
+      "| `bravo` | ✅ success | 1 min. | 2026-11-02 10:00:00 | [Run #2](http://example.com/2) |",
+      "| `charlie` | ❌ missing | — | — | — |",
+      "| `zulu` | ✅ success | 12 min. | 2026-11-02 10:00:00 | [Run #1](http://example.com/1) |",
     ]
     self.assertEqual(table_lines, expected_order)
+
+
+class WorkflowRunElapsedTimeTest(unittest.TestCase):
+  def test_less_than_one_minute_returns_one_min(self) -> None:
+    run = WorkflowRun(
+      id=1,
+      name="test",
+      status="completed",
+      conclusion="success",
+      created_at_utc=datetime(2026, 11, 2, 10, 0, 0, tzinfo=UTC),
+      url="http://example.com/1",
+      run_started_at_utc=datetime(2026, 11, 2, 10, 0, 0, tzinfo=UTC),
+      updated_at_utc=datetime(2026, 11, 2, 10, 0, 38, tzinfo=UTC),
+    )
+    self.assertEqual(run.elapsed_time_str, "1 min.")
+
+  def test_zero_duration_returns_one_min(self) -> None:
+    run = WorkflowRun(
+      id=1,
+      name="test",
+      status="completed",
+      conclusion="success",
+      created_at_utc=datetime(2026, 11, 2, 10, 0, 0, tzinfo=UTC),
+      url="http://example.com/1",
+      run_started_at_utc=datetime(2026, 11, 2, 10, 0, 0, tzinfo=UTC),
+      updated_at_utc=datetime(2026, 11, 2, 10, 0, 0, tzinfo=UTC),
+    )
+    self.assertEqual(run.elapsed_time_str, "1 min.")
+
+  def test_rounding_to_nearest_minute(self) -> None:
+    # 89 seconds -> 1.48 min -> 1 min.
+    run1 = WorkflowRun(
+      id=1,
+      name="test",
+      status="completed",
+      conclusion="success",
+      created_at_utc=datetime(2026, 11, 2, 10, 0, 0, tzinfo=UTC),
+      url="http://example.com/1",
+      run_started_at_utc=datetime(2026, 11, 2, 10, 0, 0, tzinfo=UTC),
+      updated_at_utc=datetime(2026, 11, 2, 10, 1, 29, tzinfo=UTC),
+    )
+    self.assertEqual(run1.elapsed_time_str, "1 min.")
+
+    # 90 seconds -> 1.5 min -> 2 min.
+    run2 = WorkflowRun(
+      id=2,
+      name="test",
+      status="completed",
+      conclusion="success",
+      created_at_utc=datetime(2026, 11, 2, 10, 0, 0, tzinfo=UTC),
+      url="http://example.com/2",
+      run_started_at_utc=datetime(2026, 11, 2, 10, 0, 0, tzinfo=UTC),
+      updated_at_utc=datetime(2026, 11, 2, 10, 1, 30, tzinfo=UTC),
+    )
+    self.assertEqual(run2.elapsed_time_str, "2 min.")
+
+    # 12 minutes exactly -> 12 min.
+    run3 = WorkflowRun(
+      id=3,
+      name="test",
+      status="completed",
+      conclusion="success",
+      created_at_utc=datetime(2026, 11, 2, 10, 0, 0, tzinfo=UTC),
+      url="http://example.com/3",
+      run_started_at_utc=datetime(2026, 11, 2, 10, 0, 0, tzinfo=UTC),
+      updated_at_utc=datetime(2026, 11, 2, 10, 12, 0, tzinfo=UTC),
+    )
+    self.assertEqual(run3.elapsed_time_str, "12 min.")
+
+    # 35 minutes exactly -> 35 min.
+    run4 = WorkflowRun(
+      id=4,
+      name="test",
+      status="completed",
+      conclusion="success",
+      created_at_utc=datetime(2026, 11, 2, 10, 0, 0, tzinfo=UTC),
+      url="http://example.com/4",
+      run_started_at_utc=datetime(2026, 11, 2, 10, 0, 0, tzinfo=UTC),
+      updated_at_utc=datetime(2026, 11, 2, 10, 35, 0, tzinfo=UTC),
+    )
+    self.assertEqual(run4.elapsed_time_str, "35 min.")
+
+  def test_defaults_when_timing_fields_none(self) -> None:
+    run = WorkflowRun(
+      id=1,
+      name="test",
+      status="completed",
+      conclusion="success",
+      created_at_utc=datetime(2026, 11, 2, 10, 0, 0, tzinfo=UTC),
+      url="http://example.com/1",
+    )
+    self.assertEqual(run.elapsed_time_str, "1 min.")
 
 
 if __name__ == "__main__":

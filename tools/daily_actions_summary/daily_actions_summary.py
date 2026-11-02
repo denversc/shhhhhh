@@ -54,6 +54,8 @@ class WorkflowRun:
   url: str
   workflow_path: str = ""
   failed_jobs: tuple[FailedJob, ...] = ()
+  run_started_at_utc: datetime | None = None
+  updated_at_utc: datetime | None = None
 
   @property
   def display_status(self) -> str:
@@ -62,6 +64,18 @@ class WorkflowRun:
         return "✅ success"
       return "❌ failure"
     return "⏳ in progress"
+
+  @property
+  def elapsed_time_str(self) -> str:
+    start = self.run_started_at_utc or self.created_at_utc
+    end = self.updated_at_utc or start
+    if start.tzinfo is not None and end.tzinfo is None:
+      end = end.replace(tzinfo=start.tzinfo)
+    elif start.tzinfo is None and end.tzinfo is not None:
+      start = start.replace(tzinfo=end.tzinfo)
+    duration_seconds = max(0.0, (end - start).total_seconds())
+    minutes = max(1, round(duration_seconds / 60))
+    return f"{minutes} min."
 
 
 def make_github_request(
@@ -161,6 +175,20 @@ def fetch_scheduled_runs(
     if status == "completed" and conclusion != "success":
       failed_jobs = fetch_failed_jobs(repo, run_id, token)
 
+    run_started_at_utc: datetime | None = None
+    if r.get("run_started_at"):
+      try:
+        run_started_at_utc = datetime.fromisoformat(str(r["run_started_at"]))
+      except Exception:
+        run_started_at_utc = None
+
+    updated_at_utc: datetime | None = None
+    if r.get("updated_at"):
+      try:
+        updated_at_utc = datetime.fromisoformat(str(r["updated_at"]))
+      except Exception:
+        updated_at_utc = None
+
     runs.append(
       WorkflowRun(
         id=run_id,
@@ -171,6 +199,8 @@ def fetch_scheduled_runs(
         url=str(r.get("html_url", "")),
         workflow_path=str(r.get("path", "")),
         failed_jobs=failed_jobs,
+        run_started_at_utc=run_started_at_utc,
+        updated_at_utc=updated_at_utc,
       )
     )
   return runs
@@ -270,22 +300,24 @@ def format_summary_markdown(
     f"**Overall Status**: {status_str}",
     "**Window**: Preceding 24 hours",
     "",
-    "| Workflow | Status | Run Created | Run Link |",
-    "| :--- | :--- | :--- | :--- |",
+    "| Workflow | Status | Elapsed Time | Run Created | Run Link |",
+    "| :--- | :--- | :--- | :--- | :--- |",
   ]
 
-  table_rows: list[tuple[str, str, str, str]] = []
+  table_rows: list[tuple[str, str, str, str, str]] = []
   for r in runs:
     local_time_str = r.created_at_utc.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S")
-    table_rows.append((r.name, r.display_status, local_time_str, f"[Run #{r.id}]({r.url})"))
+    table_rows.append(
+      (r.name, r.display_status, r.elapsed_time_str, local_time_str, f"[Run #{r.id}]({r.url})")
+    )
 
   for mw in missing_workflows:
-    table_rows.append((mw.name, "❌ missing", "—", "—"))
+    table_rows.append((mw.name, "❌ missing", "—", "—", "—"))
 
   table_rows.sort(key=lambda row: row[0].lower())
 
-  for name, display_status, created_str, link_str in table_rows:
-    lines.append(f"| `{name}` | {display_status} | {created_str} | {link_str} |")
+  for name, display_status, elapsed_str, created_str, link_str in table_rows:
+    lines.append(f"| `{name}` | {display_status} | {elapsed_str} | {created_str} | {link_str} |")
 
   lines.append("")
   lines.append(f"*Note: All dates and times are expressed in time zone {tz_name}.*")
