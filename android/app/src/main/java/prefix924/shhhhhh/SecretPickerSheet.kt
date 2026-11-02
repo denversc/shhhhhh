@@ -50,7 +50,7 @@ fun SecretPickerSheet(
         fontWeight = FontWeight.SemiBold,
       )
 
-      secrets.forEachIndexed { index, secret ->
+      secrets.forEach { secret ->
         Surface(
           onClick = { onSelectSecret(secret) },
           shape = RoundedCornerShape(12.dp),
