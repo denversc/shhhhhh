@@ -19,10 +19,12 @@ internal val CryptoKeyPairSaver: Saver<CryptoKeyPair?, Any> =
     },
     restore = { list ->
       if (list.size >= 2) {
-        CryptoKeyPair(
-          privateKey = Base64.getUrlDecoder().decode(list[0]),
-          publicKey = Base64.getUrlDecoder().decode(list[1]),
-        )
+        runCatching {
+          CryptoKeyPair(
+            privateKey = Base64.getUrlDecoder().decode(list[0]),
+            publicKey = Base64.getUrlDecoder().decode(list[1]),
+          )
+        }.getOrNull()
       } else {
         null
       }
