@@ -3,11 +3,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import tempfile
 import unittest
-from pathlib import Path
 import zoneinfo
+from datetime import datetime, timezone
+from pathlib import Path
 
 from daily_actions_summary import (
   FailedJob,
@@ -23,7 +23,6 @@ from daily_actions_summary import (
 
 
 class DiscoverScheduledWorkflowsTest(unittest.TestCase):
-
   def test_discover_scheduled_workflows(self) -> None:
     with tempfile.TemporaryDirectory() as tmp_dir:
       dir_path = Path(tmp_dir)
@@ -130,7 +129,6 @@ on: [push, schedule]
 
 
 class FindMissingScheduledWorkflowsTest(unittest.TestCase):
-
   def setUp(self) -> None:
     self.wf1 = ScheduledWorkflow(name="wf1", file_path="/path/to/wf1.yml")
     self.wf2 = ScheduledWorkflow(name="wf2", file_path="/path/to/wf2.yml")
@@ -207,7 +205,6 @@ class FindMissingScheduledWorkflowsTest(unittest.TestCase):
 
 
 class FormatSummaryMarkdownTest(unittest.TestCase):
-
   def setUp(self) -> None:
     self.tz = zoneinfo.ZoneInfo("America/Toronto")
     self.now_utc = datetime(2026, 11, 2, 18, 0, 0, tzinfo=timezone.utc)
@@ -244,7 +241,9 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
       ScheduledWorkflow(name="android", file_path="/path/to/android.yml"),
       ScheduledWorkflow(name="ios", file_path="/path/to/ios.yml"),
     ]
-    md = format_summary_markdown(runs=runs, missing_workflows=missing, tz=self.tz, now_utc=self.now_utc)
+    md = format_summary_markdown(
+      runs=runs, missing_workflows=missing, tz=self.tz, now_utc=self.now_utc
+    )
     self.assertIn("❌ 1 / 3 Passed (33% Success Rate)", md)
     self.assertIn("| `android` | ❌ missing | — | — |", md)
     self.assertIn("| `ios` | ❌ missing | — | — |", md)
@@ -273,7 +272,9 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
     missing = [
       ScheduledWorkflow(name="android", file_path="/path/to/android.yml"),
     ]
-    md = format_summary_markdown(runs=runs, missing_workflows=missing, tz=self.tz, now_utc=self.now_utc)
+    md = format_summary_markdown(
+      runs=runs, missing_workflows=missing, tz=self.tz, now_utc=self.now_utc
+    )
     self.assertIn("❌ 0 / 2 Passed (0% Success Rate)", md)
     self.assertIn("### Failures", md)
     self.assertIn("- **`test-suite`** ([Run #102](http://example.com/102)):", md)
@@ -303,7 +304,9 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
       ScheduledWorkflow(name="alpha", file_path="/path/to/alpha.yml"),
       ScheduledWorkflow(name="charlie", file_path="/path/to/charlie.yml"),
     ]
-    md = format_summary_markdown(runs=runs, missing_workflows=missing, tz=self.tz, now_utc=self.now_utc)
+    md = format_summary_markdown(
+      runs=runs, missing_workflows=missing, tz=self.tz, now_utc=self.now_utc
+    )
     table_lines = [line for line in md.splitlines() if line.startswith("| `")]
     expected_order = [
       "| `alpha` | ❌ missing | — | — |",

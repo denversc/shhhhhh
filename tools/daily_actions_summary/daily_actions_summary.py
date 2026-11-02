@@ -10,15 +10,16 @@ GitHub tracking issue.
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 import json
 import os
-from pathlib import Path
 import sys
 import urllib.error
 import urllib.request
 import zoneinfo
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, cast
 
 import yaml
 
@@ -63,7 +64,9 @@ class WorkflowRun:
     return "⏳ in progress"
 
 
-def make_github_request(url: str, token: str, data: bytes | None = None) -> dict | list:
+def make_github_request(
+  url: str, token: str, data: bytes | None = None
+) -> dict[str, Any] | list[Any]:
   """Send an authenticated request to the GitHub REST API."""
   req = urllib.request.Request(
     url,
@@ -77,7 +80,12 @@ def make_github_request(url: str, token: str, data: bytes | None = None) -> dict
     },
   )
   with urllib.request.urlopen(req) as resp:
-    return json.loads(resp.read().decode("utf-8"))
+    parsed: Any = json.loads(resp.read().decode("utf-8"))
+    if isinstance(parsed, dict):
+      return cast("dict[str, Any]", parsed)
+    if isinstance(parsed, list):
+      return cast("list[Any]", parsed)
+    return {}
 
 
 def fetch_failed_jobs(repo: str, run_id: int, token: str) -> tuple[FailedJob, ...]:
@@ -89,23 +97,34 @@ def fetch_failed_jobs(repo: str, run_id: int, token: str) -> tuple[FailedJob, ..
     print(f"Warning: Failed to fetch jobs for run {run_id}: {err}", file=sys.stderr)
     return ()
 
+  if not isinstance(data, dict):
+    return ()
+
   failed_jobs: list[FailedJob] = []
-  for job in data.get("jobs", []):
+  jobs_list: list[Any] = data.get("jobs", [])
+  for raw_job in jobs_list:
+    if not isinstance(raw_job, dict):
+      continue
+    job = cast("dict[str, Any]", raw_job)
     if job.get("conclusion") != "success":
       failed_steps: list[FailedStep] = []
-      for step in job.get("steps", []):
+      steps_list: list[Any] = job.get("steps", [])
+      for raw_step in steps_list:
+        if not isinstance(raw_step, dict):
+          continue
+        step = cast("dict[str, Any]", raw_step)
         if step.get("conclusion") not in ("success", "skipped", None):
           failed_steps.append(
             FailedStep(
-              name=step.get("name", "Unknown step"),
-              number=step.get("number", 0),
-              conclusion=step.get("conclusion", "failure"),
+              name=str(step.get("name", "Unknown step")),
+              number=int(step.get("number", 0)),
+              conclusion=str(step.get("conclusion", "failure")),
             )
           )
       failed_jobs.append(
         FailedJob(
-          name=job.get("name", "Unknown job"),
-          url=job.get("html_url", ""),
+          name=str(job.get("name", "Unknown job")),
+          url=str(job.get("html_url", "")),
           failed_steps=tuple(failed_steps),
         )
       )
@@ -120,16 +139,23 @@ def fetch_scheduled_runs(
   """Fetch all scheduled workflow runs created on or after cutoff_utc."""
   url = f"https://api.github.com/repos/{repo}/actions/runs?event=schedule&per_page=50"
   data = make_github_request(url, token)
+  if not isinstance(data, dict):
+    return []
 
   runs: list[WorkflowRun] = []
-  for r in data.get("workflow_runs", []):
-    created_at_utc = datetime.fromisoformat(r["created_at"].replace("Z", "+00:00"))
+  raw_runs: list[Any] = data.get("workflow_runs", [])
+  for raw_run in raw_runs:
+    if not isinstance(raw_run, dict):
+      continue
+    r = cast("dict[str, Any]", raw_run)
+    created_at_raw = str(r.get("created_at", ""))
+    created_at_utc = datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
     if created_at_utc < cutoff_utc:
       continue
 
-    run_id = r["id"]
-    status = r.get("status", "")
-    conclusion = r.get("conclusion")
+    run_id = int(r.get("id", 0))
+    status = str(r.get("status", ""))
+    conclusion = str(r["conclusion"]) if r.get("conclusion") is not None else None
 
     failed_jobs: tuple[FailedJob, ...] = ()
     if status == "completed" and conclusion != "success":
@@ -138,21 +164,19 @@ def fetch_scheduled_runs(
     runs.append(
       WorkflowRun(
         id=run_id,
-        name=r.get("name", "unknown"),
+        name=str(r.get("name", "unknown")),
         status=status,
         conclusion=conclusion,
         created_at_utc=created_at_utc,
-        url=r.get("html_url", ""),
-        workflow_path=r.get("path", ""),
+        url=str(r.get("html_url", "")),
+        workflow_path=str(r.get("path", "")),
         failed_jobs=failed_jobs,
       )
     )
   return runs
 
 
-def is_workflow_excluded(
-  name: str, file_path_or_name: str, excluded_set: set[str]
-) -> bool:
+def is_workflow_excluded(name: str, file_path_or_name: str, excluded_set: set[str]) -> bool:
   """Check if a workflow matches any entry in excluded_set by name or filename."""
   if not excluded_set:
     return False
@@ -176,12 +200,12 @@ def discover_scheduled_workflows(
   for pattern in patterns:
     workflow_files.extend(workflows_dir.glob(pattern))
 
-  excluded_set = {x.lower() for x in exclude_workflows} if exclude_workflows else set()
+  excluded_set: set[str] = {x.lower() for x in exclude_workflows} if exclude_workflows else set()
 
   for file_path in sorted(workflow_files):
     try:
-      with open(file_path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+      with open(file_path, encoding="utf-8") as f:
+        data: Any = yaml.safe_load(f)
     except Exception as err:
       print(f"Warning: Failed to parse YAML file {file_path}: {err}", file=sys.stderr)
       continue
@@ -189,17 +213,16 @@ def discover_scheduled_workflows(
     if not isinstance(data, dict):
       continue
 
-    on_clause = data.get("on") if "on" in data else data.get(True)
+    data_dict = cast("dict[Any, Any]", data)
+    on_clause: Any = data_dict.get("on") if "on" in data_dict else data_dict.get(True)
     has_schedule = False
-    if isinstance(on_clause, dict):
-      has_schedule = "schedule" in on_clause
-    elif isinstance(on_clause, list):
+    if isinstance(on_clause, (dict, list)):
       has_schedule = "schedule" in on_clause
     elif isinstance(on_clause, str):
       has_schedule = on_clause == "schedule"
 
     if has_schedule:
-      name = str(data.get("name") or file_path.stem)
+      name = str(data_dict.get("name") or file_path.stem)
       if not is_workflow_excluded(name, str(file_path), excluded_set):
         scheduled.append(ScheduledWorkflow(name=name, file_path=str(file_path)))
 
@@ -293,7 +316,9 @@ def post_issue_comment(repo: str, issue_number: int, body: str, token: str) -> s
   url = f"https://api.github.com/repos/{repo}/issues/{issue_number}/comments"
   payload = json.dumps({"body": body}).encode("utf-8")
   result = make_github_request(url, token, data=payload)
-  return result.get("html_url", "")
+  if isinstance(result, dict):
+    return str(result.get("html_url", ""))
+  return ""
 
 
 def get_default_workflows_dir() -> Path:
@@ -387,9 +412,7 @@ def main() -> None:
   workflows_dir = args.workflows_dir or get_default_workflows_dir()
   expected_workflows: list[ScheduledWorkflow] = []
   if workflows_dir.is_dir():
-    expected_workflows = discover_scheduled_workflows(
-      workflows_dir, exclude_workflows=excluded_set
-    )
+    expected_workflows = discover_scheduled_workflows(workflows_dir, exclude_workflows=excluded_set)
     print(
       f"Discovered {len(expected_workflows)} scheduled workflows in {workflows_dir}.",
       file=sys.stderr,
@@ -407,11 +430,7 @@ def main() -> None:
   runs = fetch_scheduled_runs(repo=args.repo, token=args.token, cutoff_utc=cutoff_utc)
 
   if excluded_set:
-    runs = [
-      r
-      for r in runs
-      if not is_workflow_excluded(r.name, r.workflow_path, excluded_set)
-    ]
+    runs = [r for r in runs if not is_workflow_excluded(r.name, r.workflow_path, excluded_set)]
 
   print(
     f"Found {len(runs)} scheduled runs in the preceding {args.hours} hours.",
