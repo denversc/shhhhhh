@@ -89,7 +89,6 @@ import kotlinx.coroutines.launch
 import prefix924.shhhhhh.crypto.CryptoEngine
 import prefix924.shhhhhh.crypto.CryptoKeyPair
 import prefix924.shhhhhh.crypto.DecryptResult
-import prefix924.shhhhhh.storage.AndroidAppStorage
 import prefix924.shhhhhh.storage.AppStorage
 import prefix924.shhhhhh.storage.ContactRecord
 
@@ -118,10 +117,7 @@ enum class DecryptError(val message: String) {
   ExperimentalLayoutApi::class,
 )
 @Composable
-fun MainScreen(
-  userKeyPair: CryptoKeyPair,
-  storage: AppStorage = AndroidAppStorage.create(LocalContext.current),
-) {
+fun MainScreen(userKeyPair: CryptoKeyPair, storage: AppStorage) {
   val context = LocalContext.current
   val view = LocalView.current
   val focusManager = LocalFocusManager.current
