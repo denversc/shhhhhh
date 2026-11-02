@@ -64,6 +64,8 @@ typeset -a args=(
   "--ignore-path"
   "${shhhhhh_root_dir}/ios/.gitignore"
   "--ignore-path"
+  "${shhhhhh_root_dir}/tools/daily_actions_summary/.gitignore"
+  "--ignore-path"
   "${shhhhhh_root_dir}/tools/icon/.gitignore"
   "--ignore-path"
   "${shhhhhh_root_dir}/tools/prettier/.gitignore"
