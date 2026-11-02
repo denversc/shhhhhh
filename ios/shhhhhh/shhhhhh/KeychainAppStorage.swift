@@ -9,6 +9,8 @@ import CryptoKit
 import Foundation
 import ShhhhhhCore
 
+public typealias AppStorage = ShhhhhhCore.AppStorage
+
 /// Errors that can occur during persistent storage operations.
 public enum AppStorageError: LocalizedError, Equatable {
   case keychainSaveFailed
