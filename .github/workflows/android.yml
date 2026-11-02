@@ -62,6 +62,9 @@ jobs:
             !~/.gradle/**/gc.properties
             ~/.gradle/wrapper
             ~/.m2/repository
+            android/.gradle/configuration-cache
+            !android/.gradle/**/*.lock
+            !android/.gradle/**/gc.properties
           key: ${{ github.workflow }}-gradle-${{ github.ref_name }}-${{ github.run_id }}
           restore-keys: ${{ github.workflow }}-gradle-
 
@@ -80,6 +83,9 @@ jobs:
             !~/.gradle/**/gc.properties
             ~/.gradle/wrapper
             ~/.m2/repository
+            android/.gradle/configuration-cache
+            !android/.gradle/**/*.lock
+            !android/.gradle/**/gc.properties
           key: ${{ github.workflow }}-gradle-${{ github.ref_name }}-${{ github.run_id }}
 
       - name: upload test and lint reports
