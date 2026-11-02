@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Tests for daily_actions_summary.py."""
 
-from __future__ import annotations
-
 import tempfile
 import unittest
 import zoneinfo
