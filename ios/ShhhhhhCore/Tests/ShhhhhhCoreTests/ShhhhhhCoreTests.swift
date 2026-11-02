@@ -20,8 +20,6 @@ import Testing
   )
 #endif
 
-private typealias CryptoError = ShhhhhhCore.CryptoError
-
 struct ShhhhhhCoreTests {
 
   // MARK: - EntropyAccumulator Tests
@@ -262,7 +260,7 @@ struct ShhhhhhCoreTests {
     let ciphertext = try CryptoEngine.encrypt(
       "Confidential Payload", recipientPublicKey: alice.publicKey)
 
-    #expect(throws: CryptoError.authenticationFailed) {
+    #expect(throws: ShhhhhhCryptoError.authenticationFailed) {
       try CryptoEngine.decrypt(ciphertext, recipientPrivateKey: eve.privateKey)
     }
   }
@@ -305,7 +303,7 @@ struct ShhhhhhCoreTests {
       let badBase64 = CryptoEngine.base64UrlEncode(rawPayload)
 
       // Direct decrypt throws authenticationFailed immediately
-      #expect(throws: CryptoError.authenticationFailed) {
+      #expect(throws: ShhhhhhCryptoError.authenticationFailed) {
         try CryptoEngine.decrypt(badBase64, recipientPrivateKey: alice.privateKey)
       }
 
@@ -324,12 +322,12 @@ struct ShhhhhhCoreTests {
     let shortBytes = Data(repeating: 0x42, count: 62)
     let shortBase64 = CryptoEngine.base64UrlEncode(shortBytes)
 
-    #expect(throws: CryptoError.self) {
+    #expect(throws: ShhhhhhCryptoError.self) {
       try CryptoEngine.decrypt(shortBase64, recipientPrivateKey: alice.privateKey)
     }
 
     // Invalid base64
-    #expect(throws: CryptoError.self) {
+    #expect(throws: ShhhhhhCryptoError.self) {
       try CryptoEngine.decrypt(
         "invalid-base64-symbols-!#%*&^~@", recipientPrivateKey: alice.privateKey)
     }
@@ -873,7 +871,7 @@ struct ShhhhhhCoreTests {
 
     // Sender's own key CANNOT decrypt it (intended for Bob)
     let aliceKey = CryptoEngine.generateKeyPair()
-    #expect(throws: CryptoError.authenticationFailed) {
+    #expect(throws: ShhhhhhCryptoError.authenticationFailed) {
       _ = try CryptoEngine.decryptToString(ciphertext, recipientPrivateKey: aliceKey.privateKey)
     }
   }
