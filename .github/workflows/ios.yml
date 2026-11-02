@@ -35,10 +35,8 @@ jobs:
           show-progress: false
           persist-credentials: false
 
-      - name: setup swift
-        uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9 # ratchet:swift-actions/setup-swift@v3
-        with:
-          swift-version: "6.4"
+      - name: verify swift
+        run: swift --version
 
       - name: compile ShhhhhhCore (Linux)
         working-directory: ios/ShhhhhhCore
