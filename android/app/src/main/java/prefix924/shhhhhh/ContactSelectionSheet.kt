@@ -226,29 +226,6 @@ fun ContactSelectionSheet(
   }
 }
 
-/** Backward compatibility overload for [ContactSelectionSheet] with string selectedContact. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ContactSelectionSheet(
-  userKeyPair: CryptoKeyPair,
-  selectedContact: String,
-  onDismissRequest: () -> Unit,
-  onCopyPublicKey: () -> Unit,
-  modifier: Modifier = Modifier,
-  sheetSnackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
-) =
-  ContactSelectionSheet(
-    userKeyPair = userKeyPair,
-    selectedContact = null,
-    contacts = emptyList(),
-    onSelectContact = {},
-    onOpenAddContact = {},
-    onDismissRequest = onDismissRequest,
-    onCopyPublicKey = onCopyPublicKey,
-    modifier = modifier,
-    sheetSnackbarHostState = sheetSnackbarHostState,
-  )
-
 @Composable
 fun MyPublicKeySection(
   publicKeyBase64Url: String,
