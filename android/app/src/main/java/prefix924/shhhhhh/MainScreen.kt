@@ -1,8 +1,10 @@
 package prefix924.shhhhhh
 
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
+import android.os.PersistableBundle
 import android.view.HapticFeedbackConstants
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -146,8 +148,12 @@ fun MainScreen(
   var showSecretPickerSheet by remember { mutableStateOf(false) }
   var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
 
-  fun copyToClipboard(content: String, label: String, message: String) {
+  fun copyToClipboard(content: String, label: String, message: String, sensitive: Boolean = true) {
     val clip = ClipData.newPlainText(label, content)
+    if (sensitive) {
+      clip.description.extras =
+        PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
+    }
     clipboardManager.setPrimaryClip(clip)
     scope.launch { snackbarHostState.showSnackbar(message) }
   }
@@ -407,7 +413,12 @@ fun MainScreen(
                   secretSpans = emptyList()
                   showSecretPickerSheet = false
                 } else {
-                  copyToClipboard(text, "shhhhhh_ciphertext", "Copied ciphertext")
+                  copyToClipboard(
+                    text,
+                    "shhhhhh_ciphertext",
+                    "Copied ciphertext",
+                    sensitive = false,
+                  )
                 }
               }
               .padding(horizontal = 12.dp),
