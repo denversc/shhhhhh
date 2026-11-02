@@ -228,12 +228,18 @@ def format_summary_markdown(
     "| :--- | :--- | :--- | :--- |",
   ]
 
+  table_rows: list[tuple[str, str, str, str]] = []
   for r in runs:
     local_time_str = r.created_at_utc.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S")
-    lines.append(f"| `{r.name}` | {r.display_status} | {local_time_str} | [Run #{r.id}]({r.url}) |")
+    table_rows.append((r.name, r.display_status, local_time_str, f"[Run #{r.id}]({r.url})"))
 
   for mw in missing_workflows:
-    lines.append(f"| `{mw.name}` | ❌ missing | — | — |")
+    table_rows.append((mw.name, "❌ missing", "—", "—"))
+
+  table_rows.sort(key=lambda row: row[0].lower())
+
+  for name, display_status, created_str, link_str in table_rows:
+    lines.append(f"| `{name}` | {display_status} | {created_str} | {link_str} |")
 
   lines.append("")
   lines.append(f"*Note: All dates and times are expressed in time zone {tz_name}.*")

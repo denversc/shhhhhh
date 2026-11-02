@@ -230,6 +230,39 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
     self.assertIn("Job [`unit-tests`](http://example.com/job/1): failed at `run tests`", md)
     self.assertIn("- **`android`**: No scheduled runs in the past 24 hours.", md)
 
+  def test_table_sorted_alphabetically(self) -> None:
+    runs = [
+      WorkflowRun(
+        id=1,
+        name="zulu",
+        status="completed",
+        conclusion="success",
+        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=timezone.utc),
+        url="http://example.com/1",
+      ),
+      WorkflowRun(
+        id=2,
+        name="bravo",
+        status="completed",
+        conclusion="success",
+        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=timezone.utc),
+        url="http://example.com/2",
+      ),
+    ]
+    missing = [
+      ScheduledWorkflow(name="alpha", file_path="/path/to/alpha.yml"),
+      ScheduledWorkflow(name="charlie", file_path="/path/to/charlie.yml"),
+    ]
+    md = format_summary_markdown(runs=runs, missing_workflows=missing, tz=self.tz, now_utc=self.now_utc)
+    table_lines = [line for line in md.splitlines() if line.startswith("| `")]
+    expected_order = [
+      "| `alpha` | ❌ missing | — | — |",
+      "| `bravo` | ✅ success | 2026-11-02 10:00:00 | [Run #2](http://example.com/2) |",
+      "| `charlie` | ❌ missing | — | — |",
+      "| `zulu` | ✅ success | 2026-11-02 10:00:00 | [Run #1](http://example.com/1) |",
+    ]
+    self.assertEqual(table_lines, expected_order)
+
 
 if __name__ == "__main__":
   unittest.main()
