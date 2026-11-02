@@ -47,7 +47,7 @@ jobs:
           cache-dependency-path: tools/icon/package-lock.json
 
       - name: zsh install
-        run: sudo apt install zsh
+        run: sudo apt-get update && sudo apt-get install -y zsh
 
       - name: generate app icons
         run: ./scripts/generate_app_icons.zsh
