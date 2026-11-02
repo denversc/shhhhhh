@@ -59,6 +59,9 @@ jobs:
           show-progress: false
           persist-credentials: false
 
+      - name: select Xcode
+        run: sudo xcode-select --switch /Applications/Xcode_27.app
+
       - name: compile iOS app target
         run: ./scripts/ios_compile.zsh
 
