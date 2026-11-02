@@ -12,7 +12,6 @@ on:
 permissions:
   contents: read
   actions: read
-  issues: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -23,8 +22,8 @@ defaults:
     shell: bash
 
 jobs:
-  daily-actions-summary:
-    name: daily-actions-summary
+  unit-tests:
+    name: unit-tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -39,11 +38,43 @@ jobs:
         with:
           python-version: "3.15"
 
+      - name: install python dependencies
+        run: |
+          pip install -r tools/daily_actions_summary/requirements.txt
+
+      - name: run unit tests
+        run: |
+          python3 -m unittest discover -s tools/daily_actions_summary -p "test_*.py"
+
+  daily-actions-summary:
+    name: daily-actions-summary
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: git checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
+        with:
+          show-progress: false
+          persist-credentials: false
+
+      - name: setup python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # ratchet:actions/setup-python@v7.1.0
+        with:
+          python-version: "3.15"
+
+      - name: install python dependencies
+        run: |
+          pip install -r tools/daily_actions_summary/requirements.txt
+
       - name: run daily actions summary
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          extra_args=()
+          extra_args=(--exclude-workflow daily-actions-summary)
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             extra_args+=(--dry-run)
           fi
