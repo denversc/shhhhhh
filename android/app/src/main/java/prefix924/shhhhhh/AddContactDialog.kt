@@ -30,7 +30,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,8 +52,8 @@ fun AddContactDialog(
   val clipboardManager = remember {
     context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
   }
-  var name by rememberSaveable { mutableStateOf("") }
-  var publicKeyInput by rememberSaveable { mutableStateOf("") }
+  var name by remember { mutableStateOf("") }
+  var publicKeyInput by remember { mutableStateOf("") }
   val extractedKey = remember(publicKeyInput) { extractPublicKey(publicKeyInput) }
   val isFormValid = name.isNotBlank() && extractedKey != null
 
