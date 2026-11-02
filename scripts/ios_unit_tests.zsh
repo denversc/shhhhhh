@@ -30,8 +30,8 @@ typeset -r args=(
   "-destination"
   "platform=iOS Simulator,name=iPhone 17e"
   "-parallel-testing-enabled" "NO" # saves the cost of cloning a simulator
-  "-only-testing:ShhhhhhCoreTests"
-  "-only-testing:shhhhhhTests"
+  "-only-testing:shhhhhhTests/ShhhhhhCoreTests"
+  "-only-testing:shhhhhhTests/shhhhhhTests"
   "test"
 )
 
