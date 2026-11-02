@@ -193,3 +193,12 @@ the end and commit it in a single commit.
   ```bash
   scripts/swift_format.zsh
   ```
+
+---
+
+## Copyright Notices
+
+- **Do Not Add Copyright Notices by Default**: Do not include copyright headers or license notices
+  in newly created files by default.
+- **Derived / Copied Code Only**: A copyright notice is **ONLY** required when copying from code
+  that had a copyright notice of its own.
