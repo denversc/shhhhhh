@@ -1,0 +1,51 @@
+name: daily-actions-summary
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/daily-actions-summary.yml"
+      - "scripts/daily_actions_summary.py"
+      - "scripts/daily_actions_summary.zsh"
+  schedule:
+    - cron: "0 13 * * *" # Run daily at 13:00 UTC (8:00 AM Toronto EST / 9:00 AM EDT)
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  daily-actions-summary:
+    name: daily-actions-summary
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: git checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
+        with:
+          show-progress: false
+          persist-credentials: false
+
+      - name: setup python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # ratchet:actions/setup-python@v7.1.0
+        with:
+          python-version: "3.15"
+
+      - name: run daily actions summary
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          extra_args=()
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            extra_args+=(--dry-run)
+          fi
+          python3 ./scripts/daily_actions_summary.py "${extra_args[@]}"
