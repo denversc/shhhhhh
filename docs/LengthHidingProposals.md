@@ -494,10 +494,10 @@ public enum CryptoEngineV2 {
     public static func encodeFramedPayload(plaintext: Data, targetSize: Int) throws -> Data {
         let pLen = plaintext.count
         guard pLen <= 65533 else {
-            throw CryptoError.invalidPayload("Plaintext exceeds maximum 64KB limit")
+            throw ShhhhhhCryptoError.invalidPayload("Plaintext exceeds maximum 64KB limit")
         }
         guard targetSize >= pLen + 2 else {
-            throw CryptoError.invalidPayload("Target size smaller than framed payload")
+            throw ShhhhhhCryptoError.invalidPayload("Target size smaller than framed payload")
         }
 
         var buffer = Data(count: targetSize)
@@ -511,7 +511,7 @@ public enum CryptoEngineV2 {
         if padCount > 0 {
             var padBytes = [UInt8](repeating: 0, count: padCount)
             guard SecRandomCopyBytes(kSecRandomDefault, padCount, &padBytes) == errSecSuccess else {
-                throw CryptoError.invalidPayload("CSPRNG failure")
+                throw ShhhhhhCryptoError.invalidPayload("CSPRNG failure")
             }
             buffer.replaceSubrange((2 + pLen)..<targetSize, with: padBytes)
         }
@@ -520,11 +520,11 @@ public enum CryptoEngineV2 {
 
     public static func decodeFramedPayload(_ decryptedBytes: Data) throws -> Data {
         guard decryptedBytes.count >= 2 else {
-            throw CryptoError.authenticationFailed
+            throw ShhhhhhCryptoError.authenticationFailed
         }
         let declaredLen = (Int(decryptedBytes[0]) << 8) | Int(decryptedBytes[1])
         guard declaredLen <= decryptedBytes.count - 2 else {
-            throw CryptoError.authenticationFailed
+            throw ShhhhhhCryptoError.authenticationFailed
         }
         return decryptedBytes.subdata(in: 2..<(2 + declaredLen))
     }
@@ -574,10 +574,10 @@ public enum CryptoEngineV2 {
         recipientPrivateKey: Curve25519.KeyAgreement.PrivateKey
     ) throws -> Data {
         guard let payload = base64UrlDecode(sealedBoxBase64) else {
-            throw CryptoError.invalidBase64
+            throw ShhhhhhCryptoError.invalidBase64
         }
         guard payload.count >= fixedOverheadBytes + 2, payload[0] == protocolVersion else {
-            throw CryptoError.authenticationFailed
+            throw ShhhhhhCryptoError.authenticationFailed
         }
 
         let ephemeralPubBytes = payload.subdata(in: 1..<33)
@@ -601,7 +601,7 @@ public enum CryptoEngineV2 {
         do {
             innerBuffer = try ChaChaPoly.open(sealedBox, using: symmetricKey, authenticating: aad)
         } catch {
-            throw CryptoError.authenticationFailed
+            throw ShhhhhhCryptoError.authenticationFailed
         }
 
         return try decodeFramedPayload(innerBuffer)
