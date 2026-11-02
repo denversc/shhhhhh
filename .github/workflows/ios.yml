@@ -1,0 +1,69 @@
+name: ios
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/ios.yml"
+      - "scripts/ios_*.zsh"
+      - "ios/**"
+  schedule:
+    - cron: "0 11 * * *" # Run nightly at 11am UTC (3am Pacific, 6am Eastern)
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  ubuntu-gate:
+    name: ubuntu-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: git checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
+        with:
+          show-progress: false
+          persist-credentials: false
+
+      - name: setup swift
+        uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9 # ratchet:swift-actions/setup-swift@v3
+        with:
+          swift-version: "6.4"
+
+      - name: compile ShhhhhhCore (Linux)
+        working-directory: ios/ShhhhhhCore
+        run: swift build
+
+      - name: pre-flight test ShhhhhhCore (Linux)
+        working-directory: ios/ShhhhhhCore
+        run: swift test
+
+  macos-authoritative-verification:
+    name: macos-simulator-verification
+    needs: [ubuntu-gate]
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: git checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
+        with:
+          show-progress: false
+          persist-credentials: false
+
+      - name: compile iOS app target
+        run: ./scripts/ios_compile.zsh
+
+      - name: run full unit test suite on iOS Simulator
+        run: ./scripts/ios_unit_tests.zsh
+
+      - name: run iOS UI tests on iOS Simulator
+        run: ./scripts/ios_ui_tests.zsh
