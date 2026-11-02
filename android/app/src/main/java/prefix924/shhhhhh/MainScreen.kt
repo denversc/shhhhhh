@@ -62,6 +62,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -130,7 +131,9 @@ fun MainScreen(
   val snackbarHostState = remember { SnackbarHostState() }
   val sheetSnackbarHostState = remember { SnackbarHostState() }
 
-  var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
+  var textFieldValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+    mutableStateOf(TextFieldValue(""))
+  }
   val text = textFieldValue.text
   var isTextFieldFocused by remember { mutableStateOf(false) }
   var encryptState by remember { mutableStateOf(EncryptButtonState.ENCRYPT) }
