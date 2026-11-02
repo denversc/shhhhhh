@@ -1,49 +1,6 @@
 package prefix924.shhhhhh
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import prefix924.shhhhhh.crypto.CryptoEngine
-import prefix924.shhhhhh.crypto.CryptoKeyPair
-
-/**
- * Copies the raw Base64URL public key from [keyPair] to the clipboard without extra text or
- * template wrappers.
- *
- * @param clipboardManager System clipboard manager.
- * @param keyPair The user's key pair whose public key should be copied.
- * @param onFeedback Callback invoked with the feedback message to display to the user.
- * @return The raw 43-character Base64URL string copied to the clipboard.
- */
-internal fun copyPublicKeyToClipboard(
-  clipboardManager: ClipboardManager,
-  keyPair: CryptoKeyPair,
-  onFeedback: (String) -> Unit = {},
-): String =
-  copyPublicKeyToClipboard(
-    clipboardManager = clipboardManager,
-    publicKeyBase64Url = keyPair.publicKeyBase64Url,
-    onFeedback = onFeedback,
-  )
-
-/**
- * Copies the raw Base64URL public key string to the clipboard without extra text or template
- * wrappers.
- *
- * @param clipboardManager System clipboard manager.
- * @param publicKeyBase64Url The raw 43-character Base64URL public key string.
- * @param onFeedback Callback invoked with the feedback message to display to the user.
- * @return The raw Base64URL string copied to the clipboard.
- */
-internal fun copyPublicKeyToClipboard(
-  clipboardManager: ClipboardManager,
-  publicKeyBase64Url: String,
-  onFeedback: (String) -> Unit = {},
-): String {
-  val clip = ClipData.newPlainText("shhhhhh_public_key", publicKeyBase64Url)
-  clipboardManager.setPrimaryClip(clip)
-  onFeedback("Copied public key")
-  return publicKeyBase64Url
-}
 
 internal val PUBLIC_KEY_REGEX = Regex("""(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])""")
 
