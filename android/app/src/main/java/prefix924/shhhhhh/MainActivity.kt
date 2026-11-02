@@ -10,7 +10,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.Crossfade
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.animation.doOnEnd
 import prefix924.shhhhhh.storage.AndroidAppStorage
@@ -40,11 +40,8 @@ class MainActivity : ComponentActivity() {
 
     setContent {
       ShhhhhhTheme {
-        var userKeyPair by
-          rememberSaveable(stateSaver = CryptoKeyPairSaver) {
-            mutableStateOf(if (isReady) loadedKeyPair else null)
-          }
-        var hasCompletedOnboarding by rememberSaveable { mutableStateOf(isReady) }
+        var userKeyPair by remember { mutableStateOf(if (isReady) loadedKeyPair else null) }
+        var hasCompletedOnboarding by remember { mutableStateOf(isReady) }
 
         Crossfade(
           targetState = hasCompletedOnboarding && userKeyPair != null,
