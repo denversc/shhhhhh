@@ -39,6 +39,10 @@ jobs:
         with:
           python-version: "3.15"
 
+      - name: install python dependencies
+        run: |
+          pip install -r tools/daily_actions_summary/requirements.txt
+
       - name: run daily actions summary
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
