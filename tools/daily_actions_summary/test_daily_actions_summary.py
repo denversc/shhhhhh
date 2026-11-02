@@ -219,7 +219,8 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
       ),
     ]
     md = format_summary_markdown(runs=runs, missing_workflows=[], tz=self.tz, now_utc=self.now_utc)
-    self.assertIn("✅ 1 / 1 Passed (100% Success Rate)", md)
+    self.assertIn("### Scheduled Actions Summary: 2026-11-02 13:00", md)
+    self.assertIn("✅ 1 / 1 Passed", md)
     self.assertIn("| `lint` | ✅ success |", md)
     self.assertNotIn("### Failures", md)
     self.assertNotIn("❌ missing", md)
@@ -242,7 +243,8 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
     md = format_summary_markdown(
       runs=runs, missing_workflows=missing, tz=self.tz, now_utc=self.now_utc
     )
-    self.assertIn("❌ 1 / 3 Passed (33% Success Rate)", md)
+    self.assertIn("### Scheduled Actions Summary: 2026-11-02 13:00", md)
+    self.assertIn("❌ 1 / 3 Passed, 2 / 3 Failed", md)
     self.assertIn("| `android` | ❌ missing | — | — |", md)
     self.assertIn("| `ios` | ❌ missing | — | — |", md)
     self.assertIn("### Failures", md)
@@ -273,7 +275,8 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
     md = format_summary_markdown(
       runs=runs, missing_workflows=missing, tz=self.tz, now_utc=self.now_utc
     )
-    self.assertIn("❌ 0 / 2 Passed (0% Success Rate)", md)
+    self.assertIn("### Scheduled Actions Summary: 2026-11-02 13:00", md)
+    self.assertIn("❌ 0 / 2 Passed, 2 / 2 Failed", md)
     self.assertIn("### Failures", md)
     self.assertIn("- **`test-suite`** ([Run #102](http://example.com/102)):", md)
     self.assertIn("Job [`unit-tests`](http://example.com/job/1): failed at `run tests`", md)

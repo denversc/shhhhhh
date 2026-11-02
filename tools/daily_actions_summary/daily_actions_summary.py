@@ -254,18 +254,20 @@ def format_summary_markdown(
   """Format the runs into a Markdown scorecard with Toronto timestamps."""
   now_local = now_utc.astimezone(tz)
   tz_name = now_local.strftime("%Z")
-  today_str = now_local.strftime("%Y-%m-%d")
+  header_time_str = now_local.strftime("%Y-%m-%d %H:%M")
 
   total_count = len(runs) + len(missing_workflows)
   success_count = sum(1 for r in runs if r.status == "completed" and r.conclusion == "success")
-  pct = int((success_count / total_count * 100) if total_count > 0 else 0)
-  status_icon = "✅" if total_count > 0 and success_count == total_count else "❌"
+  failed_count = total_count - success_count
+  if failed_count > 0:
+    status_str = f"❌ {success_count} / {total_count} Passed, {failed_count} / {total_count} Failed"
+  else:
+    status_str = f"✅ {success_count} / {total_count} Passed"
 
-  rate_str = f"{status_icon} {success_count} / {total_count} Passed ({pct}% Success Rate)"
   lines: list[str] = [
-    f"### 📊 Daily Scheduled Actions Summary: {today_str}",
+    f"### Scheduled Actions Summary: {header_time_str}",
     "",
-    f"**Overall Status**: {rate_str}",
+    f"**Overall Status**: {status_str}",
     "**Window**: Preceding 24 hours",
     "",
     "| Workflow | Status | Run Created | Run Link |",
