@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """Tests for daily_actions_summary.py."""
 
-from __future__ import annotations
-
-from datetime import datetime, timezone
 import tempfile
 import unittest
-from pathlib import Path
 import zoneinfo
+from datetime import UTC, datetime
+from pathlib import Path
 
 from daily_actions_summary import (
   FailedJob,
@@ -23,7 +21,6 @@ from daily_actions_summary import (
 
 
 class DiscoverScheduledWorkflowsTest(unittest.TestCase):
-
   def test_discover_scheduled_workflows(self) -> None:
     with tempfile.TemporaryDirectory() as tmp_dir:
       dir_path = Path(tmp_dir)
@@ -130,7 +127,6 @@ on: [push, schedule]
 
 
 class FindMissingScheduledWorkflowsTest(unittest.TestCase):
-
   def setUp(self) -> None:
     self.wf1 = ScheduledWorkflow(name="wf1", file_path="/path/to/wf1.yml")
     self.wf2 = ScheduledWorkflow(name="wf2", file_path="/path/to/wf2.yml")
@@ -144,7 +140,7 @@ class FindMissingScheduledWorkflowsTest(unittest.TestCase):
         name="wf1",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime.now(timezone.utc),
+        created_at_utc=datetime.now(UTC),
         url="http://example.com/1",
       ),
       WorkflowRun(
@@ -152,7 +148,7 @@ class FindMissingScheduledWorkflowsTest(unittest.TestCase):
         name="wf2",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime.now(timezone.utc),
+        created_at_utc=datetime.now(UTC),
         url="http://example.com/2",
       ),
       WorkflowRun(
@@ -160,7 +156,7 @@ class FindMissingScheduledWorkflowsTest(unittest.TestCase):
         name="wf3",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime.now(timezone.utc),
+        created_at_utc=datetime.now(UTC),
         url="http://example.com/3",
       ),
     ]
@@ -174,7 +170,7 @@ class FindMissingScheduledWorkflowsTest(unittest.TestCase):
         name="wf1",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime.now(timezone.utc),
+        created_at_utc=datetime.now(UTC),
         url="http://example.com/1",
       ),
     ]
@@ -189,7 +185,7 @@ class FindMissingScheduledWorkflowsTest(unittest.TestCase):
         name="wf1",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime.now(timezone.utc),
+        created_at_utc=datetime.now(UTC),
         url="http://example.com/1",
       ),
       WorkflowRun(
@@ -197,7 +193,7 @@ class FindMissingScheduledWorkflowsTest(unittest.TestCase):
         name="Different Display Name",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime.now(timezone.utc),
+        created_at_utc=datetime.now(UTC),
         url="http://example.com/2",
         workflow_path=".github/workflows/wf2.yml",
       ),
@@ -207,10 +203,9 @@ class FindMissingScheduledWorkflowsTest(unittest.TestCase):
 
 
 class FormatSummaryMarkdownTest(unittest.TestCase):
-
   def setUp(self) -> None:
     self.tz = zoneinfo.ZoneInfo("America/Toronto")
-    self.now_utc = datetime(2026, 11, 2, 18, 0, 0, tzinfo=timezone.utc)
+    self.now_utc = datetime(2026, 11, 2, 18, 0, 0, tzinfo=UTC)
 
   def test_all_passed_no_missing(self) -> None:
     runs = [
@@ -219,12 +214,13 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
         name="lint",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=timezone.utc),
+        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=UTC),
         url="http://example.com/101",
       ),
     ]
     md = format_summary_markdown(runs=runs, missing_workflows=[], tz=self.tz, now_utc=self.now_utc)
-    self.assertIn("✅ 1 / 1 Passed (100% Success Rate)", md)
+    self.assertIn("### Scheduled Actions Summary: 2026-11-02 13:00", md)
+    self.assertIn("✅ 1 / 1 Passed", md)
     self.assertIn("| `lint` | ✅ success |", md)
     self.assertNotIn("### Failures", md)
     self.assertNotIn("❌ missing", md)
@@ -236,7 +232,7 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
         name="lint",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=timezone.utc),
+        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=UTC),
         url="http://example.com/101",
       ),
     ]
@@ -244,8 +240,11 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
       ScheduledWorkflow(name="android", file_path="/path/to/android.yml"),
       ScheduledWorkflow(name="ios", file_path="/path/to/ios.yml"),
     ]
-    md = format_summary_markdown(runs=runs, missing_workflows=missing, tz=self.tz, now_utc=self.now_utc)
-    self.assertIn("❌ 1 / 3 Passed (33% Success Rate)", md)
+    md = format_summary_markdown(
+      runs=runs, missing_workflows=missing, tz=self.tz, now_utc=self.now_utc
+    )
+    self.assertIn("### Scheduled Actions Summary: 2026-11-02 13:00", md)
+    self.assertIn("❌ 1 / 3 Passed, 2 / 3 Failed", md)
     self.assertIn("| `android` | ❌ missing | — | — |", md)
     self.assertIn("| `ios` | ❌ missing | — | — |", md)
     self.assertIn("### Failures", md)
@@ -259,7 +258,7 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
         name="test-suite",
         status="completed",
         conclusion="failure",
-        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=timezone.utc),
+        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=UTC),
         url="http://example.com/102",
         failed_jobs=(
           FailedJob(
@@ -273,8 +272,11 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
     missing = [
       ScheduledWorkflow(name="android", file_path="/path/to/android.yml"),
     ]
-    md = format_summary_markdown(runs=runs, missing_workflows=missing, tz=self.tz, now_utc=self.now_utc)
-    self.assertIn("❌ 0 / 2 Passed (0% Success Rate)", md)
+    md = format_summary_markdown(
+      runs=runs, missing_workflows=missing, tz=self.tz, now_utc=self.now_utc
+    )
+    self.assertIn("### Scheduled Actions Summary: 2026-11-02 13:00", md)
+    self.assertIn("❌ 0 / 2 Passed, 2 / 2 Failed", md)
     self.assertIn("### Failures", md)
     self.assertIn("- **`test-suite`** ([Run #102](http://example.com/102)):", md)
     self.assertIn("Job [`unit-tests`](http://example.com/job/1): failed at `run tests`", md)
@@ -287,7 +289,7 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
         name="zulu",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=timezone.utc),
+        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=UTC),
         url="http://example.com/1",
       ),
       WorkflowRun(
@@ -295,7 +297,7 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
         name="bravo",
         status="completed",
         conclusion="success",
-        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=timezone.utc),
+        created_at_utc=datetime(2026, 11, 2, 15, 0, 0, tzinfo=UTC),
         url="http://example.com/2",
       ),
     ]
@@ -303,7 +305,9 @@ class FormatSummaryMarkdownTest(unittest.TestCase):
       ScheduledWorkflow(name="alpha", file_path="/path/to/alpha.yml"),
       ScheduledWorkflow(name="charlie", file_path="/path/to/charlie.yml"),
     ]
-    md = format_summary_markdown(runs=runs, missing_workflows=missing, tz=self.tz, now_utc=self.now_utc)
+    md = format_summary_markdown(
+      runs=runs, missing_workflows=missing, tz=self.tz, now_utc=self.now_utc
+    )
     table_lines = [line for line in md.splitlines() if line.startswith("| `")]
     expected_order = [
       "| `alpha` | ❌ missing | — | — |",
