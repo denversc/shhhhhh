@@ -26,9 +26,10 @@ Check formatting without writing:
 ruff format --check
 ```
 
-Apply patch from a failed GitHub Actions workflow run:
+Download and apply patch from a failed GitHub Actions workflow run:
 
 ```bash
+gh run download <run-id> -n format-patch
 git apply format.patch
 ```
 
@@ -52,8 +53,9 @@ Automatically fix errors where possible:
 ruff check --fix
 ```
 
-Apply patch from a failed GitHub Actions workflow run:
+Download and apply patch from a failed GitHub Actions workflow run:
 
 ```bash
+gh run download <run-id> -n lint-patch
 git apply lint.patch
 ```
