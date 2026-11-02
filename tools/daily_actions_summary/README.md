@@ -26,6 +26,12 @@ Check formatting without writing:
 ruff format --check
 ```
 
+Apply patch from a failed GitHub Actions workflow run:
+
+```bash
+git apply format.patch
+```
+
 # Running Type Checking
 
 ```bash
@@ -44,4 +50,10 @@ Automatically fix errors where possible:
 
 ```bash
 ruff check --fix
+```
+
+Apply patch from a failed GitHub Actions workflow run:
+
+```bash
+git apply lint.patch
 ```
