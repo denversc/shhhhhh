@@ -544,12 +544,10 @@ fun MainScreen(
               color = MaterialTheme.colorScheme.outlineVariant,
               shape = RoundedCornerShape(10.dp),
             )
-            .combinedClickable(
-              onClick = {
-                contacts = storage.getContacts()
-                showContactSheet = true
-              }
-            )
+            .clickable {
+              contacts = storage.getContacts()
+              showContactSheet = true
+            }
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
       ) {
