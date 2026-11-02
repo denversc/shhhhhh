@@ -5,8 +5,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/daily-actions-summary.yml"
-      - "scripts/daily_actions_summary.py"
-      - "scripts/daily_actions_summary.zsh"
+      - "tools/daily_actions_summary/**"
   schedule:
     - cron: "0 13 * * *" # Run daily at 13:00 UTC (8:00 AM Toronto EST / 9:00 AM EDT)
 
@@ -48,4 +47,4 @@ jobs:
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             extra_args+=(--dry-run)
           fi
-          python3 ./scripts/daily_actions_summary.py "${extra_args[@]}"
+          python3 ./tools/daily_actions_summary/daily_actions_summary.py "${extra_args[@]}"
