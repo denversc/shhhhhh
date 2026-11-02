@@ -1,21 +1,30 @@
 //
 //  EntropyAccumulator.swift
-//  shhhhhh
+//  ShhhhhhCore
 //
 //  Created by Denver Coneybeare on 2026-10-27.
 //
 
-import CryptoKit
-import Darwin
 import Foundation
-import Security
 
-final class EntropyAccumulator: @unchecked Sendable {
+#if canImport(CryptoKit)
+  import CryptoKit
+#elseif os(Linux)
+  import Crypto
+#else
+  #error(
+    "ShhhhhhCore only supports Apple platforms (CryptoKit) and Linux (swift-crypto). Support for other platforms is technically possible (swift-crypto supports them) but was omitted for lack of need. If needed, ask an AI coding agent to add this platform to the swift-crypto dependency condition in ios/ShhhhhhCore/Package.swift and to every '#elseif os(Linux)' crypto import in ShhhhhhCore."
+  )
+#endif
+
+public final class EntropyAccumulator: @unchecked Sendable {
   private let lock = NSLock()
   private var hasher = SHA256()
   private var sampleCount: Int = 0
 
-  func addSample(
+  public init() {}
+
+  public func addSample(
     x: Float,
     y: Float,
     dx: Float,
@@ -41,13 +50,13 @@ final class EntropyAccumulator: @unchecked Sendable {
     sampleCount += 1
   }
 
-  func getSampleCount() -> Int {
+  public func getSampleCount() -> Int {
     lock.lock()
     defer { lock.unlock() }
     return sampleCount
   }
 
-  func generateCombinedSeed(systemEntropyOverride: [UInt8]? = nil) -> [UInt8] {
+  public func generateCombinedSeed(systemEntropyOverride: [UInt8]? = nil) -> [UInt8] {
     lock.lock()
     let userDigest = hasher.finalize()
     lock.unlock()
@@ -56,7 +65,8 @@ final class EntropyAccumulator: @unchecked Sendable {
     if let override = systemEntropyOverride, override.count == 32 {
       systemEntropy = override
     } else {
-      _ = SecRandomCopyBytes(kSecRandomDefault, systemEntropy.count, &systemEntropy)
+      var rng = SystemRandomNumberGenerator()
+      systemEntropy = (0..<32).map { _ in UInt8.random(in: .min ... .max, using: &rng) }
     }
 
     var combiner = SHA256()

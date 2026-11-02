@@ -1,13 +1,21 @@
 //
 //  CryptoEngine.swift
-//  shhhhhh
+//  ShhhhhhCore
 //
 //  Created by Denver Coneybeare on 2026-10-27.
 //
 
-import CryptoKit
 import Foundation
-import Security
+
+#if canImport(CryptoKit)
+  import CryptoKit
+#elseif os(Linux)
+  import Crypto
+#else
+  #error(
+    "ShhhhhhCore only supports Apple platforms (CryptoKit) and Linux (swift-crypto). Support for other platforms is technically possible (swift-crypto supports them) but was omitted for lack of need. If needed, ask an AI coding agent to add this platform to the swift-crypto dependency condition in ios/ShhhhhhCore/Package.swift and to every '#elseif os(Linux)' crypto import in ShhhhhhCore."
+  )
+#endif
 
 /// Representation of a Curve25519 / X25519 key pair with 32-byte raw keys.
 public struct CryptoKeyPair: Equatable {
@@ -324,10 +332,8 @@ public enum CryptoEngine {
         }
         buffer.replaceSubrange((2 + pLen)..<targetSize, with: override.prefix(padCount))
       } else {
-        var padBytes = [UInt8](repeating: 0, count: padCount)
-        guard SecRandomCopyBytes(kSecRandomDefault, padCount, &padBytes) == errSecSuccess else {
-          throw CryptoError.invalidPayload("CSPRNG failure generating padding")
-        }
+        var rng = SystemRandomNumberGenerator()
+        let padBytes = (0..<padCount).map { _ in UInt8.random(in: .min ... .max, using: &rng) }
         buffer.replaceSubrange((2 + pLen)..<targetSize, with: padBytes)
       }
     }

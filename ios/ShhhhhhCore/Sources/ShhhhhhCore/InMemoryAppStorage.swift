@@ -1,16 +1,25 @@
 //
 //  InMemoryAppStorage.swift
-//  shhhhhh
+//  ShhhhhhCore
 //
 //  Created by Denver Coneybeare on 2026-10-27.
 //
 
-import CryptoKit
 import Foundation
 
-/// In-memory implementation of `AppStorage` designed for unit tests, previews,
+#if canImport(CryptoKit)
+  import CryptoKit
+#elseif os(Linux)
+  import Crypto
+#else
+  #error(
+    "ShhhhhhCore only supports Apple platforms (CryptoKit) and Linux (swift-crypto). Support for other platforms is technically possible (swift-crypto supports them) but was omitted for lack of need. If needed, ask an AI coding agent to add this platform to the swift-crypto dependency condition in ios/ShhhhhhCore/Package.swift and to every '#elseif os(Linux)' crypto import in ShhhhhhCore."
+  )
+#endif
+
+/// In-memory implementation of `KeyContactStorage` designed for unit tests, previews,
 /// and isolated execution contexts.
-public final class InMemoryAppStorage: AppStorage, @unchecked Sendable {
+public final class InMemoryAppStorage: KeyContactStorage, @unchecked Sendable {
   private let lock = NSLock()
   private var privateKeyData: Data?
   private var publicKeyBase64Url: String?
@@ -102,7 +111,7 @@ public final class InMemoryAppStorage: AppStorage, @unchecked Sendable {
     contacts.removeAll { $0.id == id }
   }
 
-  // MARK: - AppStorage Unified Preferences
+  // MARK: - KeyContactStorage Unified Preferences
 
   public func getTheme() -> String? {
     lock.lock()

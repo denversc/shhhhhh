@@ -1,6 +1,6 @@
 //
 //  ContactRecord.swift
-//  shhhhhh
+//  ShhhhhhCore
 //
 //  Created by Denver Coneybeare on 2026-10-27.
 //

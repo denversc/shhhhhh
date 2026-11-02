@@ -52,6 +52,8 @@ if command -v swift-format >/dev/null 2>&1; then
   swift_format_cmd=("swift-format")
 elif command -v xcrun >/dev/null 2>&1; then
   swift_format_cmd=("xcrun" "swift-format")
+elif command -v swift >/dev/null 2>&1 && swift format --version >/dev/null 2>&1; then
+  swift_format_cmd=("swift" "format")
 else
   say_error "swift-format not found. Please install swift-format or Xcode."
   exit 1

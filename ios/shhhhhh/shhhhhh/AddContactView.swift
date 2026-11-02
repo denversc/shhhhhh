@@ -5,12 +5,13 @@
 //  Created by Denver Coneybeare on 2026-10-27.
 //
 
+import ShhhhhhCore
 import SwiftUI
 import UIKit
 
 /// Form for adding a new contact with automatic smart public key extraction and validation.
 public struct AddContactView: View {
-  let storage: AppStorage
+  let storage: KeyContactStorage
   let onSave: (ContactRecord) -> Void
   let onCancel: () -> Void
 
@@ -19,7 +20,7 @@ public struct AddContactView: View {
   @Environment(\.dismiss) private var dismiss
 
   public init(
-    storage: AppStorage,
+    storage: KeyContactStorage,
     onSave: @escaping (ContactRecord) -> Void,
     onCancel: @escaping () -> Void
   ) {

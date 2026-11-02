@@ -1,12 +1,21 @@
 //
 //  SmartKeyExtractor.swift
-//  shhhhhh
+//  ShhhhhhCore
 //
 //  Created by Denver Coneybeare on 2026-10-27.
 //
 
-import CryptoKit
 import Foundation
+
+#if canImport(CryptoKit)
+  import CryptoKit
+#elseif os(Linux)
+  import Crypto
+#else
+  #error(
+    "ShhhhhhCore only supports Apple platforms (CryptoKit) and Linux (swift-crypto). Support for other platforms is technically possible (swift-crypto supports them) but was omitted for lack of need. If needed, ask an AI coding agent to add this platform to the swift-crypto dependency condition in ios/ShhhhhhCore/Package.swift and to every '#elseif os(Linux)' crypto import in ShhhhhhCore."
+  )
+#endif
 
 /// Utility for extracting and validating 43-character Base64URL Curve25519 public keys from input text.
 public enum SmartKeyExtractor {

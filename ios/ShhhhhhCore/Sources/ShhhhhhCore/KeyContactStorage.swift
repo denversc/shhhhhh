@@ -1,12 +1,21 @@
 //
-//  AppStorage.swift
-//  shhhhhh
+//  KeyContactStorage.swift
+//  ShhhhhhCore
 //
 //  Created by Denver Coneybeare on 2026-10-27.
 //
 
-import CryptoKit
 import Foundation
+
+#if canImport(CryptoKit)
+  import CryptoKit
+#elseif os(Linux)
+  import Crypto
+#else
+  #error(
+    "ShhhhhhCore only supports Apple platforms (CryptoKit) and Linux (swift-crypto). Support for other platforms is technically possible (swift-crypto supports them) but was omitted for lack of need. If needed, ask an AI coding agent to add this platform to the swift-crypto dependency condition in ios/ShhhhhhCore/Package.swift and to every '#elseif os(Linux)' crypto import in ShhhhhhCore."
+  )
+#endif
 
 /// Protocol governing cryptographic key persistence and onboarding state.
 public protocol KeyStorage: AnyObject, Sendable {
@@ -25,7 +34,7 @@ public protocol ContactStorage: AnyObject, Sendable {
 }
 
 /// Unified application storage interface for keys, contacts, and preferences.
-public protocol AppStorage: KeyStorage, ContactStorage {
+public protocol KeyContactStorage: KeyStorage, ContactStorage {
   func getTheme() -> String?
   func setTheme(_ theme: String)
   func clearAll()

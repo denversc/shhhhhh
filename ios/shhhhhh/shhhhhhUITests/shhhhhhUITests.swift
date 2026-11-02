@@ -5,6 +5,7 @@
 //  Created by Denver Coneybeare on 2026-10-27.
 //
 
+import UIKit
 import XCTest
 
 // swift-format-ignore: TypeNamesShouldBeCapitalized
@@ -12,6 +13,7 @@ final class shhhhhhUITests: XCTestCase {
 
   override func setUpWithError() throws {
     continueAfterFailure = false
+    UIPasteboard.general.items = []
   }
 
   @MainActor
@@ -431,6 +433,9 @@ final class shhhhhhUITests: XCTestCase {
     XCTAssertTrue(mainEditor.exists)
 
     // 1. Initially (with empty clipboard), tapping Paste shows transient feedback
+    // Deliberately redundant with setUpWithError(): this step requires an empty pasteboard,
+    // so clear it here too in case the setUp reset is ever changed or removed.
+    UIPasteboard.general.items = []
     pasteButton.tap()
     let emptyBanner = app.staticTexts["Clipboard is empty"]
     XCTAssertTrue(emptyBanner.waitForExistence(timeout: 3.0))

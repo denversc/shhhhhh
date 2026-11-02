@@ -6,6 +6,7 @@
 //
 
 import CryptoKit
+import ShhhhhhCore
 import SwiftUI
 import UIKit
 
@@ -37,7 +38,7 @@ enum DecryptError: String, Identifiable {
 }
 
 struct ContentView: View {
-  let storage: AppStorage
+  let storage: KeyContactStorage
   @State private var userKeyPair: CryptoKeyPair? = nil
   @State private var hasCompletedOnboarding: Bool = false
   @State private var text: String = ""
@@ -60,7 +61,7 @@ struct ContentView: View {
   @State private var isKeyboardVisible: Bool = false
 
   init(
-    storage: AppStorage = KeychainAppStorage.shared,
+    storage: KeyContactStorage = KeychainAppStorage.shared,
     userKeyPair: CryptoKeyPair? = nil,
     hasCompletedOnboarding: Bool? = nil
   ) {
