@@ -33,9 +33,14 @@ fun SecretPickerSheet(
   secrets: List<String>,
   onDismissRequest: () -> Unit,
   onSelectSecret: (String) -> Unit,
+  modifier: Modifier = Modifier,
 ) {
   val sheetState = rememberModalBottomSheetState()
-  ModalBottomSheet(onDismissRequest = onDismissRequest, sheetState = sheetState) {
+  ModalBottomSheet(
+    onDismissRequest = onDismissRequest,
+    sheetState = sheetState,
+    modifier = modifier,
+  ) {
     Column(
       modifier =
         Modifier.fillMaxWidth()
