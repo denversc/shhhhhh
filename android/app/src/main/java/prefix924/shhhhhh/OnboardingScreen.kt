@@ -167,7 +167,8 @@ fun OnboardingScreen(onComplete: (CryptoKeyPair) -> Unit, modifier: Modifier = M
 
   // Idle swipe hint: a sweep plays after SWIPE_HINT_IDLE_MS without input, then every
   // SWIPE_HINT_IDLE_MS (start-to-start) while idle continues; between sweeps the hand stays parked
-  // at the end of the path, fading out just before the next sweep. The idle countdown restarts whenever the hint becomes
+  // at the end of the path, fading out just before the next sweep. The idle countdown restarts
+  // whenever the hint becomes
   // eligible again, e.g. when the finger is lifted (every entropy sample happens while the finger
   // is down), the restore dialog is dismissed, or the app returns to the foreground.
   var isFingerDown by remember { mutableStateOf(false) }

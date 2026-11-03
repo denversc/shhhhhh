@@ -85,8 +85,8 @@ internal fun swipeHintWavePoint(u: Float, width: Float, height: Float): Offset {
 }
 
 /**
- * Returns the time, in milliseconds, into the current swipe hint cycle for the given idle time (time
- * since the last input), or `null` if the hint should not be shown yet.
+ * Returns the time, in milliseconds, into the current swipe hint cycle for the given idle time
+ * (time since the last input), or `null` if the hint should not be shown yet.
  *
  * Cycles start at 5 s, 10 s, 15 s, ... after the last input; once the first cycle starts the hint
  * stays visible (the hand parks at the end of the path between sweeps) until the next input.
@@ -123,7 +123,6 @@ internal data class SwipeHintFrame(
 
 /**
  * Computes the [SwipeHintFrame] for [cycleMs] milliseconds into a swipe hint cycle.
- *
  * - Sweep (first [SWIPE_HINT_SWEEP_MS]): the hand fades in and moves left to right with ease-in-out
  *   followed by a fading trail. In [reduceMotion] mode the hand does not move: it fades in at the
  *   end of the path, and the full static wave fades in and back out.
@@ -199,8 +198,7 @@ internal fun EntropySwipeHint(
     if (frame.trailAlpha > 0f && frame.trailEnd > frame.trailStart) {
       // In reduce-motion mode the static wave is drawn uniformly; otherwise the trail fades toward
       // its tail.
-      val segmentCount =
-        if (reduceMotion) SWIPE_HINT_STATIC_SEGMENTS else SWIPE_HINT_TRAIL_SEGMENTS
+      val segmentCount = if (reduceMotion) SWIPE_HINT_STATIC_SEGMENTS else SWIPE_HINT_TRAIL_SEGMENTS
       var previous = swipeHintWavePoint(frame.trailStart, size.width, size.height)
       for (i in 1..segmentCount) {
         val fraction = i.toFloat() / segmentCount.toFloat()
@@ -224,7 +222,13 @@ internal fun EntropySwipeHint(
 
     if (frame.handAlpha > 0f) {
       val fingertip = swipeHintWavePoint(frame.handProgress, size.width, size.height)
-      drawHandIcon(painter, iconColor, fingertip, iconSizePx, SWIPE_HINT_ICON_ALPHA * frame.handAlpha)
+      drawHandIcon(
+        painter,
+        iconColor,
+        fingertip,
+        iconSizePx,
+        SWIPE_HINT_ICON_ALPHA * frame.handAlpha,
+      )
     }
   }
 }
