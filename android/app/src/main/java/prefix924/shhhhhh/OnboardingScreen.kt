@@ -447,15 +447,17 @@ fun OnboardingScreen(onComplete: (CryptoKeyPair) -> Unit, modifier: Modifier = M
 
         // Gate on eligibility so the hint hides in the same frame as a touch, the restore dialog
         // opening, etc., rather than waiting for the LaunchedEffect driving it to be cancelled.
-        swipeHintCycleMs?.takeIf { isSwipeHintEligible }?.let { cycleMs ->
-          EntropySwipeHint(
-            cycleMs = cycleMs,
-            reduceMotion = swipeHintReduceMotion,
-            trailColor = strokeColor,
-            iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.matchParentSize().testTag(ENTROPY_SWIPE_HINT_TAG),
-          )
-        }
+        swipeHintCycleMs
+          ?.takeIf { isSwipeHintEligible }
+          ?.let { cycleMs ->
+            EntropySwipeHint(
+              cycleMs = cycleMs,
+              reduceMotion = swipeHintReduceMotion,
+              trailColor = strokeColor,
+              iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.matchParentSize().testTag(ENTROPY_SWIPE_HINT_TAG),
+            )
+          }
       }
 
       // Primary Action / Key Generation Status Button (50.dp height, 10.dp corner radius)
