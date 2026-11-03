@@ -1,8 +1,11 @@
 package prefix924.shhhhhh
 
+import android.animation.ValueAnimator
 import android.content.ClipboardManager
 import android.content.Context
 import android.view.HapticFeedbackConstants
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -49,19 +52,26 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -80,6 +90,13 @@ internal const val MIN_MOVE_DISTANCE_PX = 3f
 private const val MAX_VISUAL_SEGMENTS = 1800
 private const val MAX_VISUAL_DOTS = 400
 private const val MIN_KEYGEN_SPINNER_MS = 650L
+private const val PROGRESS_SECTION_FADE_IN_MS = 200
+
+internal const val ENTROPY_CANVAS_TAG = "entropy_canvas"
+internal const val ENTROPY_PROGRESS_SECTION_TAG = "entropy_progress_section"
+internal const val ENTROPY_PERCENTAGE_TEXT_TAG = "entropy_percentage_text"
+internal const val ENTROPY_PROGRESS_BAR_TAG = "entropy_progress_bar"
+internal const val ENTROPY_SWIPE_HINT_TAG = "entropy_swipe_hint"
 
 internal class EntropyAccumulator {
   private val digest: MessageDigest = MessageDigest.getInstance("SHA-256")
@@ -138,6 +155,57 @@ fun OnboardingScreen(onComplete: (CryptoKeyPair) -> Unit, modifier: Modifier = M
 
   val hasReachedFullEntropy = progress >= 1f
 
+  // The progress section is hidden (but keeps its space reserved, so that the entropy box never
+  // moves or resizes) until the first entropy sample is collected.
+  val isProgressSectionVisible = progress > 0f
+  val progressSectionAlpha by
+    animateFloatAsState(
+      targetValue = if (isProgressSectionVisible) 1f else 0f,
+      animationSpec = tween(durationMillis = PROGRESS_SECTION_FADE_IN_MS),
+      label = "EntropyProgressSectionAlpha",
+    )
+
+  // Idle swipe hint: plays after SWIPE_HINT_IDLE_MS without input, then every SWIPE_HINT_IDLE_MS
+  // (start-to-start) while idle continues. The idle countdown restarts whenever the hint becomes
+  // eligible again, e.g. when the finger is lifted (every entropy sample happens while the finger
+  // is down), the restore dialog is dismissed, or the app returns to the foreground.
+  var isFingerDown by remember { mutableStateOf(false) }
+  var swipeHintPhase by remember { mutableStateOf<Float?>(null) }
+  var swipeHintReduceMotion by remember { mutableStateOf(false) }
+  val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+  val isSwipeHintEligible =
+    lifecycleState.isAtLeast(Lifecycle.State.RESUMED) &&
+      !showRestoreDialog &&
+      !isFingerDown &&
+      !hasReachedFullEntropy &&
+      !isGenerating &&
+      !isKeyReady
+
+  LaunchedEffect(isSwipeHintEligible) {
+    swipeHintPhase = null
+    if (!isSwipeHintEligible) return@LaunchedEffect
+    try {
+      // Drive the animation from the frame clock (rather than an Animatable) so that it is not
+      // disabled or sped up by the system animator duration scale.
+      val idleOriginNanos = withFrameNanos { it }
+      while (true) {
+        val idleMs = (withFrameNanos { it } - idleOriginNanos) / 1_000_000L
+        val phase = swipeHintPhase(idleMs)
+        if (phase == null) {
+          swipeHintPhase = null
+          delay(swipeHintDelayUntilNextStartMs(idleMs))
+        } else {
+          if (swipeHintPhase == null) {
+            swipeHintReduceMotion = !ValueAnimator.areAnimatorsEnabled()
+          }
+          swipeHintPhase = phase
+        }
+      }
+    } finally {
+      swipeHintPhase = null
+    }
+  }
+
   LaunchedEffect(hasReachedFullEntropy, isKeyReady) {
     if (hasReachedFullEntropy && !isKeyReady) {
       isGenerating = true
@@ -194,6 +262,51 @@ fun OnboardingScreen(onComplete: (CryptoKeyPair) -> Unit, modifier: Modifier = M
         )
       }
 
+      // Entropy Progress Section
+      Column(
+        modifier =
+          Modifier.fillMaxWidth()
+            .graphicsLayer { alpha = progressSectionAlpha }
+            .then(
+              if (isProgressSectionVisible) {
+                Modifier.testTag(ENTROPY_PROGRESS_SECTION_TAG)
+              } else {
+                Modifier.clearAndSetSemantics {}
+              }
+            ),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Text(
+            text = "Entropy Collection",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Medium,
+          )
+          Text(
+            text = "${(progress * 100f).roundToInt()}%",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.testTag(ENTROPY_PERCENTAGE_TEXT_TAG),
+          )
+        }
+
+        LinearProgressIndicator(
+          progress = { progress },
+          modifier =
+            Modifier.fillMaxWidth()
+              .height(8.dp)
+              .clip(CircleShape)
+              .testTag(ENTROPY_PROGRESS_BAR_TAG),
+          color = Color(0xFF1A73E8),
+          trackColor = MaterialTheme.colorScheme.surfaceVariant,
+        )
+      }
+
       // Interactive Entropy Canvas
       val strokeColor = Color(0xFF1A73E8)
       Box(
@@ -208,12 +321,15 @@ fun OnboardingScreen(onComplete: (CryptoKeyPair) -> Unit, modifier: Modifier = M
               color = MaterialTheme.colorScheme.outlineVariant,
               shape = RoundedCornerShape(12.dp),
             )
+            .testTag(ENTROPY_CANVAS_TAG)
             .pointerInput(hasReachedFullEntropy) {
               if (hasReachedFullEntropy) return@pointerInput
               awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 if (progress >= 1f) return@awaitEachGesture
                 down.consume()
+                isFingerDown = true
+                try {
 
                 var lastPosition = down.position
                 var dragged = false
@@ -270,6 +386,9 @@ fun OnboardingScreen(onComplete: (CryptoKeyPair) -> Unit, modifier: Modifier = M
                   }
                   pointerChange.consume()
                 }
+                } finally {
+                  isFingerDown = false
+                }
               }
             },
         contentAlignment = Alignment.Center,
@@ -320,34 +439,16 @@ fun OnboardingScreen(onComplete: (CryptoKeyPair) -> Unit, modifier: Modifier = M
             )
           }
         }
-      }
 
-      // Entropy Progress Section
-      Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          Text(
-            text = "Entropy Collection",
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Medium,
-          )
-          Text(
-            text = "${(progress * 100f).roundToInt()}%",
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary,
+        swipeHintPhase?.let { phase ->
+          EntropySwipeHint(
+            phase = phase,
+            reduceMotion = swipeHintReduceMotion,
+            trailColor = strokeColor,
+            iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.matchParentSize().testTag(ENTROPY_SWIPE_HINT_TAG),
           )
         }
-
-        LinearProgressIndicator(
-          progress = { progress },
-          modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
-          color = Color(0xFF1A73E8),
-          trackColor = MaterialTheme.colorScheme.surfaceVariant,
-        )
       }
 
       // Primary Action / Key Generation Status Button (50.dp height, 10.dp corner radius)
