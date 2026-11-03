@@ -24,6 +24,7 @@ private let minMoveDistance: CGFloat = 3.0
 private let maxVisualSegments: Int = 360
 private let maxVisualDots: Int = 80
 private let minKeygenSpinnerMs: UInt64 = 650
+private let progressSectionFadeInSeconds: Double = 0.2
 private let brandBlue = Color(red: 0x1A / 255.0, green: 0x73 / 255.0, blue: 0xE8 / 255.0)
 
 struct OnboardingView: View {
@@ -46,6 +47,10 @@ struct OnboardingView: View {
     progress >= 1.0
   }
 
+  private var hasCollectedEntropy: Bool {
+    progress > 0
+  }
+
   var body: some View {
     NavigationStack {
       VStack(spacing: 16) {
@@ -64,6 +69,30 @@ struct OnboardingView: View {
           .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
+
+        // Entropy Progress Section
+        // Hidden until the first entropy sample is collected, but its space stays reserved in the
+        // layout so that the entropy box below never changes size or position when it appears.
+        VStack(spacing: 8) {
+          HStack {
+            Text("Entropy Collection")
+              .font(.footnote)
+              .fontWeight(.medium)
+            Spacer()
+            Text("\(Int(round(progress * 100)))%")
+              .font(.footnote)
+              .fontWeight(.semibold)
+              .foregroundColor(brandBlue)
+              .accessibilityIdentifier("entropy_percentage_text")
+          }
+
+          ProgressView(value: progress, total: 1.0)
+            .tint(brandBlue)
+            .accessibilityIdentifier("entropy_progress_bar")
+        }
+        .opacity(hasCollectedEntropy ? 1 : 0)
+        .accessibilityHidden(!hasCollectedEntropy)
+        .animation(.easeInOut(duration: progressSectionFadeInSeconds), value: hasCollectedEntropy)
 
         // Interactive Entropy Canvas Box
         ZStack(alignment: .center) {
@@ -101,25 +130,6 @@ struct OnboardingView: View {
             }
         )
         .disabled(hasReachedFullEntropy)
-
-        // Entropy Progress Section
-        VStack(spacing: 8) {
-          HStack {
-            Text("Entropy Collection")
-              .font(.footnote)
-              .fontWeight(.medium)
-            Spacer()
-            Text("\(Int(round(progress * 100)))%")
-              .font(.footnote)
-              .fontWeight(.semibold)
-              .foregroundColor(brandBlue)
-              .accessibilityIdentifier("entropy_percentage_text")
-          }
-
-          ProgressView(value: progress, total: 1.0)
-            .tint(brandBlue)
-            .accessibilityIdentifier("entropy_progress_bar")
-        }
 
         // Primary Action / Key Generation Status Button (50pt height, 10pt corner radius)
         Button(action: {
