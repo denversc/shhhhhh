@@ -127,7 +127,7 @@ enum SwipeHint {
     let t = min(max(cycleTime, 0), period)
     let fadeOutStart = period - handFadeOutDuration
     if t >= fadeOutStart {
-      return max(0, (period - t) / handFadeOutDuration)
+      return min(1, max(0, (period - t) / handFadeOutDuration))
     }
     if t < fadeInDuration {
       return t / fadeInDuration
