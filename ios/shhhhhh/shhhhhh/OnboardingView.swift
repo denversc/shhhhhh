@@ -465,7 +465,8 @@ private struct SwipeHintOverlay: View {
             .foregroundStyle(Color(uiColor: .label).opacity(Self.handOpacity))
             .position(
               x: tip.x + Self.fingertipToIconCenter.width,
-              y: tip.y + Self.fingertipToIconCenter.height)
+              y: tip.y + Self.fingertipToIconCenter.height
+            )
             .opacity(handOpacity)
         }
       }
