@@ -90,26 +90,18 @@ struct OnboardingView: View {
 
         // Entropy Progress Section
         // Hidden until the first entropy sample is collected, but its space stays reserved in the
-        // layout so that the entropy box below never changes size or position when it appears.
-        VStack(spacing: 8) {
-          HStack {
-            Text("Entropy Collection")
-              .font(.footnote)
-              .fontWeight(.medium)
-            Spacer()
-            Text("\(Int(round(progress * 100)))%")
-              .font(.footnote)
-              .fontWeight(.semibold)
-              .foregroundColor(brandBlue)
-              .accessibilityIdentifier("entropy_percentage_text")
+        // layout (by an invisible, non-accessible copy) so that the entropy box below never changes
+        // size or position when it appears. The real section is only inserted into the view tree
+        // once visible because `.accessibilityHidden` alone does not hide it from XCUITest.
+        ZStack {
+          EntropyProgressSection(progress: 0)
+            .hidden()
+            .accessibilityHidden(true)
+          if hasCollectedEntropy {
+            EntropyProgressSection(progress: progress)
+              .transition(.opacity)
           }
-
-          ProgressView(value: progress, total: 1.0)
-            .tint(brandBlue)
-            .accessibilityIdentifier("entropy_progress_bar")
         }
-        .opacity(hasCollectedEntropy ? 1 : 0)
-        .accessibilityHidden(!hasCollectedEntropy)
         .animation(.easeInOut(duration: progressSectionFadeInSeconds), value: hasCollectedEntropy)
 
         // Interactive Entropy Canvas Box
@@ -388,6 +380,33 @@ struct OnboardingView: View {
         Path(ellipseIn: rect),
         with: .color(brandBlue.opacity(alpha))
       )
+    }
+  }
+}
+
+// MARK: - Entropy Progress Section
+
+/// "Entropy Collection" label, percentage, and progress bar shown above the entropy box.
+private struct EntropyProgressSection: View {
+  let progress: Double
+
+  var body: some View {
+    VStack(spacing: 8) {
+      HStack {
+        Text("Entropy Collection")
+          .font(.footnote)
+          .fontWeight(.medium)
+        Spacer()
+        Text("\(Int(round(progress * 100)))%")
+          .font(.footnote)
+          .fontWeight(.semibold)
+          .foregroundColor(brandBlue)
+          .accessibilityIdentifier("entropy_percentage_text")
+      }
+
+      ProgressView(value: progress, total: 1.0)
+        .tint(brandBlue)
+        .accessibilityIdentifier("entropy_progress_bar")
     }
   }
 }
