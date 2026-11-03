@@ -368,33 +368,55 @@ struct shhhhhhTests {
     #expect(SwipeHint.trailPoints(animationProgress: 0, in: size).count == 1)
   }
 
-  @Test func testSwipeHintScheduleStartsEveryPeriodAfterIdleDelay() throws {
+  @Test func testSwipeHintCycleTimingConstants() throws {
     #expect(SwipeHint.idleDelay == 5)
     #expect(SwipeHint.period == 5)
-    #expect(SwipeHint.duration == 1)
-
-    #expect(SwipeHint.delayUntilNextStart(elapsed: 0) == 5)
-    #expect(SwipeHint.delayUntilNextStart(elapsed: 2) == 3)
-    #expect(SwipeHint.delayUntilNextStart(elapsed: 5) == 0)
-    #expect(abs(SwipeHint.delayUntilNextStart(elapsed: 6) - 4) < 1e-9)
-    #expect(SwipeHint.delayUntilNextStart(elapsed: 10) == 0)
-    #expect(abs(SwipeHint.delayUntilNextStart(elapsed: 12.5) - 2.5) < 1e-9)
-
-    #expect(SwipeHint.animationProgress(elapsed: 0) == nil)
-    #expect(SwipeHint.animationProgress(elapsed: 4.99) == nil)
-    #expect(SwipeHint.animationProgress(elapsed: 5) == 0)
-    #expect(abs(SwipeHint.animationProgress(elapsed: 5.5)! - 0.5) < 1e-9)
-    #expect(SwipeHint.animationProgress(elapsed: 6.5) == nil)
-    #expect(SwipeHint.animationProgress(elapsed: 9.9) == nil)
-    #expect(abs(SwipeHint.animationProgress(elapsed: 10.25)! - 0.25) < 1e-9)
-    #expect(abs(SwipeHint.animationProgress(elapsed: 15.75)! - 0.75) < 1e-9)
+    #expect(SwipeHint.duration == 2)
+    #expect(SwipeHint.handFadeOutDuration == 0.2)
   }
 
-  @Test func testSwipeHintOpacityEnvelope() throws {
+  @Test func testSwipeHintCycleTimeRepeatsEveryPeriod() throws {
+    #expect(SwipeHint.cycleTime(sinceFirstSweepStart: -1) == 0)
+    #expect(SwipeHint.cycleTime(sinceFirstSweepStart: 0) == 0)
+    #expect(SwipeHint.cycleTime(sinceFirstSweepStart: 3) == 3)
+    #expect(SwipeHint.cycleTime(sinceFirstSweepStart: 5) == 0)
+    #expect(abs(SwipeHint.cycleTime(sinceFirstSweepStart: 12.5) - 2.5) < 1e-9)
+  }
+
+  @Test func testSwipeHintSweepProgressParksAtEnd() throws {
+    #expect(SwipeHint.sweepProgress(cycleTime: 0) == 0)
+    #expect(SwipeHint.sweepProgress(cycleTime: 1) == 0.5)
+    #expect(SwipeHint.sweepProgress(cycleTime: 2) == 1)
+    #expect(SwipeHint.sweepProgress(cycleTime: 4.5) == 1)
+  }
+
+  @Test func testSwipeHintHandPersistsUntilJustBeforeNextSweep() throws {
     for reduceMotion in [false, true] {
-      #expect(SwipeHint.opacity(animationProgress: 0, reduceMotion: reduceMotion) == 0)
-      #expect(abs(SwipeHint.opacity(animationProgress: 1, reduceMotion: reduceMotion)) < 1e-9)
-      #expect(abs(SwipeHint.opacity(animationProgress: 0.5, reduceMotion: reduceMotion) - 1) < 1e-9)
+      // Fades in from transparent at the start of the sweep.
+      #expect(SwipeHint.handOpacity(cycleTime: 0, reduceMotion: reduceMotion) == 0)
+      // Fully visible after the sweep while parked, e.g. ~4 s into the cycle.
+      #expect(SwipeHint.handOpacity(cycleTime: 1.5, reduceMotion: reduceMotion) == 1)
+      #expect(SwipeHint.handOpacity(cycleTime: 2.5, reduceMotion: reduceMotion) == 1)
+      #expect(SwipeHint.handOpacity(cycleTime: 4.0, reduceMotion: reduceMotion) == 1)
+      #expect(SwipeHint.handOpacity(cycleTime: 4.8, reduceMotion: reduceMotion) == 1)
+      // Quick fade-out finishing right at the next sweep start.
+      #expect(abs(SwipeHint.handOpacity(cycleTime: 4.9, reduceMotion: reduceMotion) - 0.5) < 1e-9)
+      #expect(SwipeHint.handOpacity(cycleTime: 5.0, reduceMotion: reduceMotion) == 0)
     }
+    // Without Reduce Motion the hand fades in quickly (within the first 10% of the sweep).
+    #expect(SwipeHint.handOpacity(cycleTime: 0.2, reduceMotion: false) == 1)
+    #expect(SwipeHint.handOpacity(cycleTime: 0.2, reduceMotion: true) < 1)
+  }
+
+  @Test func testSwipeHintTrailFadesDuringSweepOnly() throws {
+    for reduceMotion in [false, true] {
+      #expect(SwipeHint.trailOpacity(cycleTime: 0, reduceMotion: reduceMotion) == 0)
+      #expect(abs(SwipeHint.trailOpacity(cycleTime: 1, reduceMotion: reduceMotion) - 1) < 1e-9)
+      #expect(abs(SwipeHint.trailOpacity(cycleTime: 2, reduceMotion: reduceMotion)) < 1e-9)
+      #expect(SwipeHint.trailOpacity(cycleTime: 3, reduceMotion: reduceMotion) == 0)
+    }
+    // With motion, the trail is fading out over the last 20% of the sweep.
+    let fading = SwipeHint.trailOpacity(cycleTime: 1.8, reduceMotion: false)
+    #expect(fading > 0 && fading < 1)
   }
 }

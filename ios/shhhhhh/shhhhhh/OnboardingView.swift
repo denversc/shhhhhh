@@ -41,7 +41,8 @@ struct OnboardingView: View {
   @State private var currentGestureLastPoint: CGPoint? = nil
   @State private var currentGestureHasDragged: Bool = false
 
-  // Idle swipe hint state. `hintStartDate` is non-nil only while a hint animation is playing.
+  // Idle swipe hint state. `hintStartDate` is the start of the first sweep, and is non-nil only while
+  // the hint overlay is shown.
   @State private var hintStartDate: Date? = nil
   @State private var hintIdleGeneration: Int = 0
   @GestureState private var isFingerDown: Bool = false
@@ -215,29 +216,21 @@ struct OnboardingView: View {
 
   // MARK: - Idle Swipe Hint
 
-  /// Plays the swipe hint every `SwipeHint.period` seconds, starting `SwipeHint.idleDelay` seconds
-  /// after this task starts. The task is restarted (via `swipeHintTaskKey`) on every entropy
-  /// sample, finger down/up, and whenever the hint becomes enabled/disabled, which restarts the
-  /// full idle countdown.
+  /// Shows the swipe hint overlay once the user has been idle for `SwipeHint.idleDelay` seconds.
+  /// From then on the overlay itself repeats the sweep every `SwipeHint.period` seconds.
+  ///
+  /// The task is restarted (via `swipeHintTaskKey`) on every entropy sample, finger down/up, and
+  /// whenever the hint becomes enabled/disabled, which hides the overlay and restarts the full idle
+  /// countdown.
   private func runSwipeHintLoop() async {
     hintStartDate = nil
     guard isSwipeHintEnabled else { return }
-
-    let idleSince = Date()
-    while !Task.isCancelled {
-      let elapsed = Date().timeIntervalSince(idleSince)
-      let delay = SwipeHint.delayUntilNextStart(elapsed: elapsed)
-      do {
-        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-        hintStartDate = Date()
-        try await Task.sleep(nanoseconds: UInt64(SwipeHint.duration * 1_000_000_000))
-        hintStartDate = nil
-        // Avoid re-triggering immediately if we woke up exactly on a start boundary.
-        try await Task.sleep(nanoseconds: 10_000_000)
-      } catch {
-        return
-      }
+    do {
+      try await Task.sleep(nanoseconds: UInt64(SwipeHint.idleDelay * 1_000_000_000))
+    } catch {
+      return
     }
+    hintStartDate = Date()
   }
 
   /// Hides any in-flight hint and restarts the idle countdown.
@@ -419,11 +412,13 @@ private struct SwipeHintTaskKey: Equatable {
   let idleGeneration: Int
 }
 
-/// Purely visual overlay that plays one swipe hint animation starting at `startDate`.
+/// Purely visual overlay that repeats the swipe hint every `SwipeHint.period` seconds, with the
+/// first sweep starting at `startDate`.
 ///
 /// A semi-transparent pointing hand sweeps left-to-right along `SwipeHint`'s wave path, trailed by
-/// a short fading brand-blue stroke. With Reduce Motion, the hand stays at the end of a static wave
-/// and the whole hint fades in and out in place instead.
+/// a short fading brand-blue stroke, then stays parked at the right end until it quickly fades out
+/// just before the next sweep. With Reduce Motion, the hand stays at the end of a static wave that
+/// fades in and out in place instead, and the hand likewise stays visible until the next cycle.
 private struct SwipeHintOverlay: View {
   let startDate: Date
   let reduceMotion: Bool
@@ -439,8 +434,11 @@ private struct SwipeHintOverlay: View {
 
   var body: some View {
     TimelineView(.animation) { timeline in
-      let elapsed = timeline.date.timeIntervalSince(startDate)
-      let t = min(max(elapsed / SwipeHint.duration, 0), 1)
+      let cycleTime = SwipeHint.cycleTime(
+        sinceFirstSweepStart: timeline.date.timeIntervalSince(startDate))
+      let t = SwipeHint.sweepProgress(cycleTime: cycleTime)
+      let trailOpacity = SwipeHint.trailOpacity(cycleTime: cycleTime, reduceMotion: reduceMotion)
+      let handOpacity = SwipeHint.handOpacity(cycleTime: cycleTime, reduceMotion: reduceMotion)
       GeometryReader { geometry in
         let size = geometry.size
         let tip =
@@ -460,6 +458,7 @@ private struct SwipeHintOverlay: View {
                 opacity: { ratio in Self.trailMaxOpacity * ratio }, in: &context)
             }
           }
+          .opacity(trailOpacity)
 
           Image(systemName: "hand.point.up.left.fill")
             .font(.system(size: Self.iconSize))
@@ -467,8 +466,8 @@ private struct SwipeHintOverlay: View {
             .position(
               x: tip.x + Self.fingertipToIconCenter.width,
               y: tip.y + Self.fingertipToIconCenter.height)
+            .opacity(handOpacity)
         }
-        .opacity(SwipeHint.opacity(animationProgress: t, reduceMotion: reduceMotion))
       }
     }
   }

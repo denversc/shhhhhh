@@ -19,8 +19,18 @@ enum SwipeHint {
   /// Start-to-start interval between consecutive hint animations while the user remains idle.
   static let period: TimeInterval = 5.0
 
-  /// Duration of a single hint animation.
-  static let duration: TimeInterval = 1.0
+  /// Duration of a single left-to-right sweep. After the sweep the hand stays parked at the right
+  /// end of the path for the rest of the period.
+  static let duration: TimeInterval = 2.0
+
+  /// Duration of the parked hand's quick fade-out, which ends exactly when the next sweep starts.
+  static let handFadeOutDuration: TimeInterval = 0.2
+
+  /// Fraction of the sweep over which the hand (and trail) fade in at the start of each sweep.
+  static let sweepFadeInFraction: Double = 0.1
+
+  /// Fraction of the sweep, at its end, over which the trail fades out.
+  static let trailFadeOutFraction: Double = 0.2
 
   /// Wave amplitude, as a fraction of the box height, on either side of the vertical center.
   static let amplitudeFraction: CGFloat = 0.15
@@ -94,44 +104,53 @@ enum SwipeHint {
     }
   }
 
-  /// Delay from `elapsed` (time since the most recent input) until the next animation starts.
+  /// Time into the current hint cycle, given the time elapsed since the *first* sweep started.
   ///
-  /// Animations start at `idleDelay`, `idleDelay + period`, `idleDelay + 2 * period`, and so on
-  /// after the most recent input. If `elapsed` is exactly at a start time the delay is zero.
-  static func delayUntilNextStart(elapsed: TimeInterval) -> TimeInterval {
-    if elapsed <= idleDelay {
-      return idleDelay - max(elapsed, 0)
+  /// Sweeps start every `period` seconds (start-to-start), so the result is in `0..<period`.
+  static func cycleTime(sinceFirstSweepStart elapsed: TimeInterval) -> TimeInterval {
+    max(elapsed, 0).truncatingRemainder(dividingBy: period)
+  }
+
+  /// Linear sweep progress (`0...1`) at `cycleTime`; stays at 1 (parked) after the sweep ends.
+  static func sweepProgress(cycleTime: TimeInterval) -> Double {
+    min(max(cycleTime / duration, 0), 1)
+  }
+
+  /// Opacity of the hand at `cycleTime`.
+  ///
+  /// The hand fades in quickly at the start of the sweep (with Reduce Motion, over the first half
+  /// of the sweep window, in place), stays fully visible while parked for the rest of the cycle,
+  /// and fades out over `handFadeOutDuration` so that it is fully transparent exactly when the next
+  /// sweep starts.
+  static func handOpacity(cycleTime: TimeInterval, reduceMotion: Bool) -> Double {
+    let fadeInDuration = reduceMotion ? duration / 2 : duration * sweepFadeInFraction
+    let t = min(max(cycleTime, 0), period)
+    let fadeOutStart = period - handFadeOutDuration
+    if t >= fadeOutStart {
+      return max(0, (period - t) / handFadeOutDuration)
     }
-    let sinceFirst = elapsed - idleDelay
-    let remainder = sinceFirst.truncatingRemainder(dividingBy: period)
-    return remainder == 0 ? 0 : period - remainder
+    if t < fadeInDuration {
+      return t / fadeInDuration
+    }
+    return 1
   }
 
-  /// Linear progress (`0..<1`) of the animation in flight at `elapsed` seconds after the most recent
-  /// input, or `nil` if no animation is playing at that moment.
-  static func animationProgress(elapsed: TimeInterval) -> Double? {
-    guard elapsed >= idleDelay else { return nil }
-    let sinceStart = (elapsed - idleDelay).truncatingRemainder(dividingBy: period)
-    guard sinceStart < duration else { return nil }
-    return sinceStart / duration
-  }
-
-  /// Opacity envelope for the overlay over a single animation.
+  /// Opacity of the trail (with Reduce Motion, the static wave) at `cycleTime`.
   ///
-  /// With motion, the overlay fades in quickly and fades out at the end so it does not pop. With
-  /// Reduce Motion, the stationary hand and wave fade in and out smoothly over the whole duration.
-  static func opacity(animationProgress t: Double, reduceMotion: Bool) -> Double {
-    let t = min(max(t, 0), 1)
+  /// With motion, the trail fades in with the hand and fades out over the end of the sweep. With
+  /// Reduce Motion, the static wave fades smoothly in and out over the sweep window. Either way the
+  /// trail is invisible while the hand is parked.
+  static func trailOpacity(cycleTime: TimeInterval, reduceMotion: Bool) -> Double {
+    let t = sweepProgress(cycleTime: cycleTime)
+    guard cycleTime < duration else { return 0 }
     if reduceMotion {
       return sin(.pi * t)
     }
-    let fadeIn = 0.12
-    let fadeOut = 0.2
-    if t < fadeIn {
-      return t / fadeIn
+    if t < sweepFadeInFraction {
+      return t / sweepFadeInFraction
     }
-    if t > 1 - fadeOut {
-      return (1 - t) / fadeOut
+    if t > 1 - trailFadeOutFraction {
+      return (1 - t) / trailFadeOutFraction
     }
     return 1
   }

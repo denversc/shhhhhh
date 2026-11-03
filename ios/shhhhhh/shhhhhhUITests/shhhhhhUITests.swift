@@ -297,6 +297,13 @@ final class shhhhhhUITests: XCTestCase {
     // Appears after ~5 s of idle.
     XCTAssertTrue(hint.waitForExistence(timeout: 8.0))
 
+    // Stays shown while idle: the hand stays parked after each sweep until the next one starts,
+    // so the hint is still present ~4 s into the cycle (and after the next sweep starts).
+    _ = XCTWaiter.wait(for: [XCTestExpectation(description: "idle")], timeout: 3.5)
+    XCTAssertTrue(hint.exists)
+    _ = XCTWaiter.wait(for: [XCTestExpectation(description: "idle")], timeout: 2.0)
+    XCTAssertTrue(hint.exists)
+
     // Touching the box hides it immediately and restarts the idle countdown.
     canvas.tap()
     XCTAssertFalse(hint.exists)
