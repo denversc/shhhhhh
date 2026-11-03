@@ -165,12 +165,13 @@ fun OnboardingScreen(onComplete: (CryptoKeyPair) -> Unit, modifier: Modifier = M
       label = "EntropyProgressSectionAlpha",
     )
 
-  // Idle swipe hint: plays after SWIPE_HINT_IDLE_MS without input, then every SWIPE_HINT_IDLE_MS
-  // (start-to-start) while idle continues. The idle countdown restarts whenever the hint becomes
+  // Idle swipe hint: a sweep plays after SWIPE_HINT_IDLE_MS without input, then every
+  // SWIPE_HINT_IDLE_MS (start-to-start) while idle continues; between sweeps the hand stays parked
+  // at the end of the path, fading out just before the next sweep. The idle countdown restarts whenever the hint becomes
   // eligible again, e.g. when the finger is lifted (every entropy sample happens while the finger
   // is down), the restore dialog is dismissed, or the app returns to the foreground.
   var isFingerDown by remember { mutableStateOf(false) }
-  var swipeHintPhase by remember { mutableStateOf<Float?>(null) }
+  var swipeHintCycleMs by remember { mutableStateOf<Long?>(null) }
   var swipeHintReduceMotion by remember { mutableStateOf(false) }
   val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
   val isSwipeHintEligible =
@@ -182,7 +183,7 @@ fun OnboardingScreen(onComplete: (CryptoKeyPair) -> Unit, modifier: Modifier = M
       !isKeyReady
 
   LaunchedEffect(isSwipeHintEligible) {
-    swipeHintPhase = null
+    swipeHintCycleMs = null
     if (!isSwipeHintEligible) return@LaunchedEffect
     try {
       // Drive the animation from the frame clock (rather than an Animatable) so that it is not
@@ -190,19 +191,22 @@ fun OnboardingScreen(onComplete: (CryptoKeyPair) -> Unit, modifier: Modifier = M
       val idleOriginNanos = withFrameNanos { it }
       while (true) {
         val idleMs = (withFrameNanos { it } - idleOriginNanos) / 1_000_000L
-        val phase = swipeHintPhase(idleMs)
-        if (phase == null) {
-          swipeHintPhase = null
-          delay(swipeHintDelayUntilNextStartMs(idleMs))
-        } else {
-          if (swipeHintPhase == null) {
+        val cycleMs = swipeHintCycleMs(idleMs)
+        if (cycleMs != null) {
+          val previousCycleMs = swipeHintCycleMs
+          if (previousCycleMs == null || cycleMs < previousCycleMs) {
+            // A new cycle started; re-check the reduce-motion setting.
             swipeHintReduceMotion = !ValueAnimator.areAnimatorsEnabled()
           }
-          swipeHintPhase = phase
+        }
+        swipeHintCycleMs = cycleMs
+        val delayMs = swipeHintIdleDelayMs(idleMs)
+        if (delayMs > 0L) {
+          delay(delayMs)
         }
       }
     } finally {
-      swipeHintPhase = null
+      swipeHintCycleMs = null
     }
   }
 
@@ -331,7 +335,7 @@ fun OnboardingScreen(onComplete: (CryptoKeyPair) -> Unit, modifier: Modifier = M
                 isFingerDown = true
                 // Hide the hint in the same frame as the touch, rather than waiting for the
                 // LaunchedEffect driving it to be cancelled by the next recomposition.
-                swipeHintPhase = null
+                swipeHintCycleMs = null
                 try {
 
                   var lastPosition = down.position
@@ -443,9 +447,9 @@ fun OnboardingScreen(onComplete: (CryptoKeyPair) -> Unit, modifier: Modifier = M
           }
         }
 
-        swipeHintPhase?.let { phase ->
+        swipeHintCycleMs?.let { cycleMs ->
           EntropySwipeHint(
-            phase = phase,
+            cycleMs = cycleMs,
             reduceMotion = swipeHintReduceMotion,
             trailColor = strokeColor,
             iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
