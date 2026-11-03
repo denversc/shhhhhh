@@ -142,6 +142,7 @@ class OnboardingScreenInstrumentedTest {
     composeTestRule.mainClock.autoAdvance = true
     composeTestRule.onNodeWithText("Restore from Backup").performClick()
     composeTestRule.mainClock.autoAdvance = false
+    composeTestRule.mainClock.advanceTimeByFrame()
     composeTestRule.onNodeWithTag(ENTROPY_SWIPE_HINT_TAG).assertDoesNotExist()
 
     composeTestRule.mainClock.advanceTimeBy(11_000L)
