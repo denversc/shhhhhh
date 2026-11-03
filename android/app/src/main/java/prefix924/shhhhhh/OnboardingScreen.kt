@@ -329,6 +329,9 @@ fun OnboardingScreen(onComplete: (CryptoKeyPair) -> Unit, modifier: Modifier = M
                 if (progress >= 1f) return@awaitEachGesture
                 down.consume()
                 isFingerDown = true
+                // Hide the hint in the same frame as the touch, rather than waiting for the
+                // LaunchedEffect driving it to be cancelled by the next recomposition.
+                swipeHintPhase = null
                 try {
 
                 var lastPosition = down.position
