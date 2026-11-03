@@ -307,4 +307,94 @@ struct shhhhhhTests {
     sheet.onDismiss()
     #expect(dismissCalled)
   }
+
+  // MARK: - SwipeHint Tests
+
+  @Test func testSwipeHintEaseInOutEndpointsAndMidpoint() throws {
+    #expect(SwipeHint.easeInOut(0) == 0)
+    #expect(SwipeHint.easeInOut(1) == 1)
+    #expect(abs(SwipeHint.easeInOut(0.5) - 0.5) < 1e-9)
+    // Clamped outside 0...1
+    #expect(SwipeHint.easeInOut(-1) == 0)
+    #expect(SwipeHint.easeInOut(2) == 1)
+  }
+
+  @Test func testSwipeHintEaseInOutAcceleratesThenDecelerates() throws {
+    let dt = 0.1
+    let speeds = stride(from: 0.0, to: 1.0, by: dt).map {
+      SwipeHint.easeInOut($0 + dt) - SwipeHint.easeInOut($0)
+    }
+    // Monotonic increasing (never moves backwards).
+    #expect(speeds.allSatisfy { $0 > 0 })
+    // Fastest in the middle, slow at both ends.
+    let maxIndex = speeds.indices.max { speeds[$0] < speeds[$1] }!
+    #expect(maxIndex == 4 || maxIndex == 5)
+    #expect(speeds.first! < speeds[maxIndex] / 4)
+    #expect(speeds.last! < speeds[maxIndex] / 4)
+  }
+
+  @Test func testSwipeHintWavePointGeometry() throws {
+    let size = CGSize(width: 300, height: 200)
+    let start = SwipeHint.wavePoint(progress: 0, in: size)
+    let mid = SwipeHint.wavePoint(progress: 0.5, in: size)
+    let end = SwipeHint.wavePoint(progress: 1, in: size)
+
+    // Left to right, inset from the edges, starting/crossing/ending on the vertical center.
+    #expect(start.x > 0 && start.x < mid.x && mid.x < end.x && end.x < size.width)
+    #expect(abs(start.y - 100) < 1e-6)
+    #expect(abs(mid.y - 100) < 1e-6)
+    #expect(abs(end.y - 100) < 1e-6)
+
+    // S-curve: rises (smaller y) in the first half, dips in the second, amplitude 15% of height.
+    let quarter = SwipeHint.wavePoint(progress: 0.25, in: size)
+    let threeQuarter = SwipeHint.wavePoint(progress: 0.75, in: size)
+    #expect(abs(quarter.y - (100 - 30)) < 1e-6)
+    #expect(abs(threeQuarter.y - (100 + 30)) < 1e-6)
+
+    // Never leaves the +/-15% band.
+    for i in 0...100 {
+      let p = SwipeHint.wavePoint(progress: Double(i) / 100, in: size)
+      #expect(abs(p.y - 100) <= 30 + 1e-6)
+    }
+  }
+
+  @Test func testSwipeHintTrailEndsAtFingertip() throws {
+    let size = CGSize(width: 300, height: 200)
+    let trail = SwipeHint.trailPoints(animationProgress: 0.6, in: size)
+    #expect(trail.count > 2)
+    #expect(trail.last == SwipeHint.fingertipPoint(animationProgress: 0.6, in: size))
+    #expect(trail.first == SwipeHint.fingertipPoint(animationProgress: 0.3, in: size))
+    // At the very start there is no trail yet, just the fingertip.
+    #expect(SwipeHint.trailPoints(animationProgress: 0, in: size).count == 1)
+  }
+
+  @Test func testSwipeHintScheduleStartsEveryPeriodAfterIdleDelay() throws {
+    #expect(SwipeHint.idleDelay == 5)
+    #expect(SwipeHint.period == 5)
+    #expect(SwipeHint.duration == 1)
+
+    #expect(SwipeHint.delayUntilNextStart(elapsed: 0) == 5)
+    #expect(SwipeHint.delayUntilNextStart(elapsed: 2) == 3)
+    #expect(SwipeHint.delayUntilNextStart(elapsed: 5) == 0)
+    #expect(abs(SwipeHint.delayUntilNextStart(elapsed: 6) - 4) < 1e-9)
+    #expect(SwipeHint.delayUntilNextStart(elapsed: 10) == 0)
+    #expect(abs(SwipeHint.delayUntilNextStart(elapsed: 12.5) - 2.5) < 1e-9)
+
+    #expect(SwipeHint.animationProgress(elapsed: 0) == nil)
+    #expect(SwipeHint.animationProgress(elapsed: 4.99) == nil)
+    #expect(SwipeHint.animationProgress(elapsed: 5) == 0)
+    #expect(abs(SwipeHint.animationProgress(elapsed: 5.5)! - 0.5) < 1e-9)
+    #expect(SwipeHint.animationProgress(elapsed: 6.5) == nil)
+    #expect(SwipeHint.animationProgress(elapsed: 9.9) == nil)
+    #expect(abs(SwipeHint.animationProgress(elapsed: 10.25)! - 0.25) < 1e-9)
+    #expect(abs(SwipeHint.animationProgress(elapsed: 15.75)! - 0.75) < 1e-9)
+  }
+
+  @Test func testSwipeHintOpacityEnvelope() throws {
+    for reduceMotion in [false, true] {
+      #expect(SwipeHint.opacity(animationProgress: 0, reduceMotion: reduceMotion) == 0)
+      #expect(abs(SwipeHint.opacity(animationProgress: 1, reduceMotion: reduceMotion)) < 1e-9)
+      #expect(abs(SwipeHint.opacity(animationProgress: 0.5, reduceMotion: reduceMotion) - 1) < 1e-9)
+    }
+  }
 }
