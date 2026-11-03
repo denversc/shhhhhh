@@ -56,10 +56,10 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -334,61 +334,61 @@ fun OnboardingScreen(onComplete: (CryptoKeyPair) -> Unit, modifier: Modifier = M
                 swipeHintPhase = null
                 try {
 
-                var lastPosition = down.position
-                var dragged = false
+                  var lastPosition = down.position
+                  var dragged = false
 
-                entropyAccumulator.addSample(
-                  x = lastPosition.x,
-                  y = lastPosition.y,
-                  dx = 0f,
-                  dy = 0f,
-                  timestampNanos = System.nanoTime(),
-                )
-                if (dots.size >= MAX_VISUAL_DOTS) {
-                  dots.removeAt(0)
-                }
-                dots.add(lastPosition)
-                progress = (progress + TAP_ENTROPY_INCREMENT).coerceAtMost(1f)
+                  entropyAccumulator.addSample(
+                    x = lastPosition.x,
+                    y = lastPosition.y,
+                    dx = 0f,
+                    dy = 0f,
+                    timestampNanos = System.nanoTime(),
+                  )
+                  if (dots.size >= MAX_VISUAL_DOTS) {
+                    dots.removeAt(0)
+                  }
+                  dots.add(lastPosition)
+                  progress = (progress + TAP_ENTROPY_INCREMENT).coerceAtMost(1f)
 
-                while (progress < 1f) {
-                  val event = awaitPointerEvent()
-                  val pointerChange =
-                    event.changes.firstOrNull { it.id == down.id }
-                      ?: event.changes.firstOrNull()
-                      ?: break
+                  while (progress < 1f) {
+                    val event = awaitPointerEvent()
+                    val pointerChange =
+                      event.changes.firstOrNull { it.id == down.id }
+                        ?: event.changes.firstOrNull()
+                        ?: break
 
-                  if (!pointerChange.pressed) {
+                    if (!pointerChange.pressed) {
+                      pointerChange.consume()
+                      break
+                    }
+
+                    val currentPosition = pointerChange.position
+                    val dx = currentPosition.x - lastPosition.x
+                    val dy = currentPosition.y - lastPosition.y
+                    val distance = hypot(dx, dy)
+
+                    if (distance >= MIN_MOVE_DISTANCE_PX) {
+                      if (!dragged && dots.isNotEmpty()) {
+                        dots.removeAt(dots.lastIndex)
+                      }
+                      dragged = true
+
+                      entropyAccumulator.addSample(
+                        x = currentPosition.x,
+                        y = currentPosition.y,
+                        dx = dx,
+                        dy = dy,
+                        timestampNanos = System.nanoTime(),
+                      )
+                      if (segments.size >= MAX_VISUAL_SEGMENTS) {
+                        segments.removeAt(0)
+                      }
+                      segments.add(StrokeSegment(start = lastPosition, end = currentPosition))
+                      lastPosition = currentPosition
+                      progress = (progress + MOVE_ENTROPY_INCREMENT).coerceAtMost(1f)
+                    }
                     pointerChange.consume()
-                    break
                   }
-
-                  val currentPosition = pointerChange.position
-                  val dx = currentPosition.x - lastPosition.x
-                  val dy = currentPosition.y - lastPosition.y
-                  val distance = hypot(dx, dy)
-
-                  if (distance >= MIN_MOVE_DISTANCE_PX) {
-                    if (!dragged && dots.isNotEmpty()) {
-                      dots.removeAt(dots.lastIndex)
-                    }
-                    dragged = true
-
-                    entropyAccumulator.addSample(
-                      x = currentPosition.x,
-                      y = currentPosition.y,
-                      dx = dx,
-                      dy = dy,
-                      timestampNanos = System.nanoTime(),
-                    )
-                    if (segments.size >= MAX_VISUAL_SEGMENTS) {
-                      segments.removeAt(0)
-                    }
-                    segments.add(StrokeSegment(start = lastPosition, end = currentPosition))
-                    lastPosition = currentPosition
-                    progress = (progress + MOVE_ENTROPY_INCREMENT).coerceAtMost(1f)
-                  }
-                  pointerChange.consume()
-                }
                 } finally {
                   isFingerDown = false
                 }

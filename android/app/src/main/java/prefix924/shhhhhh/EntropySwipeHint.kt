@@ -16,7 +16,9 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.PI
 import kotlin.math.sin
 
-/** Idle time (no entropy input) before the first swipe hint plays, and the start-to-start period. */
+/**
+ * Idle time (no entropy input) before the first swipe hint plays, and the start-to-start period.
+ */
 internal const val SWIPE_HINT_IDLE_MS = 5_000L
 
 /** Duration of a single swipe hint animation. */
@@ -68,8 +70,8 @@ internal fun swipeHintWavePoint(u: Float, width: Float, height: Float): Offset {
 }
 
 /**
- * Returns the delay, in milliseconds, from [idleMs] (time since the last input) until the next swipe
- * hint animation should start. Animations start at 5 s, 10 s, 15 s, ... after the last input.
+ * Returns the delay, in milliseconds, from [idleMs] (time since the last input) until the next
+ * swipe hint animation should start. Animations start at 5 s, 10 s, 15 s, ... after the last input.
  */
 internal fun swipeHintDelayUntilNextStartMs(idleMs: Long): Long {
   if (idleMs < SWIPE_HINT_IDLE_MS) return SWIPE_HINT_IDLE_MS - idleMs
