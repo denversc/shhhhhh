@@ -37,8 +37,10 @@ final class shhhhhhUITests: XCTestCase {
         "Private end-to-end encryption for your text messages. To initialize your key, scribble or tap randomly in the box:"
       ].exists)
     XCTAssertTrue(app.staticTexts["Scribble or tap randomly here"].exists)
-    XCTAssertTrue(app.staticTexts["Entropy Collection"].exists)
-    XCTAssertTrue(app.staticTexts["0%"].exists)
+    // The entropy progress section is hidden until the first entropy sample is collected.
+    XCTAssertFalse(app.staticTexts["Entropy Collection"].exists)
+    XCTAssertFalse(app.staticTexts["entropy_percentage_text"].exists)
+    XCTAssertFalse(app.progressIndicators["entropy_progress_bar"].exists)
 
     let actionButton = app.buttons["keygen_action_button"]
     XCTAssertTrue(actionButton.exists)
@@ -206,6 +208,20 @@ final class shhhhhhUITests: XCTestCase {
   func testEntropyCollectionAndKeyGenerationFlow() throws {
     let app = launchApp()
 
+    collectFullEntropy(app)
+
+    let actionButton = app.buttons["keygen_action_button"]
+    actionButton.tap()
+
+    let recipientLabel = app.staticTexts["Recipient"]
+    XCTAssertTrue(recipientLabel.waitForExistence(timeout: 5.0))
+    XCTAssertTrue(app.buttons["Encrypt"].exists)
+    XCTAssertTrue(app.buttons["Decrypt"].exists)
+  }
+
+  /// Scribbles in the entropy box until 100% is reached and waits for "Get Started" to be enabled.
+  @MainActor
+  private func collectFullEntropy(_ app: XCUIApplication) {
     let canvas = app.otherElements["entropy_canvas"]
     XCTAssertTrue(canvas.waitForExistence(timeout: 5.0))
 
@@ -232,13 +248,73 @@ final class shhhhhhUITests: XCTestCase {
     let expectation = XCTNSPredicateExpectation(predicate: predicate, object: actionButton)
     let result = XCTWaiter.wait(for: [expectation], timeout: 10.0)
     XCTAssertEqual(result, .completed)
+  }
 
-    actionButton.tap()
+  @MainActor
+  func testEntropyProgressSectionHiddenUntilFirstSampleAndAboveBox() throws {
+    let app = launchApp()
 
-    let recipientLabel = app.staticTexts["Recipient"]
-    XCTAssertTrue(recipientLabel.waitForExistence(timeout: 5.0))
-    XCTAssertTrue(app.buttons["Encrypt"].exists)
-    XCTAssertTrue(app.buttons["Decrypt"].exists)
+    let canvas = app.otherElements["entropy_canvas"]
+    XCTAssertTrue(canvas.waitForExistence(timeout: 5.0))
+
+    let sectionLabel = app.staticTexts["Entropy Collection"]
+    let percentageText = app.staticTexts["entropy_percentage_text"]
+    let progressBar = app.progressIndicators["entropy_progress_bar"]
+    XCTAssertFalse(sectionLabel.exists)
+    XCTAssertFalse(percentageText.exists)
+    XCTAssertFalse(progressBar.exists)
+
+    let canvasFrameBefore = canvas.frame
+
+    // A single tap collects the first entropy sample and reveals the progress section.
+    canvas.tap()
+    XCTAssertTrue(sectionLabel.waitForExistence(timeout: 3.0))
+    XCTAssertTrue(percentageText.exists)
+    XCTAssertTrue(progressBar.exists)
+    XCTAssertNotEqual(percentageText.label, "0%")
+
+    // The progress section sits above the entropy box.
+    let canvasFrame = canvas.frame
+    XCTAssertLessThanOrEqual(sectionLabel.frame.maxY, canvasFrame.minY)
+    XCTAssertLessThanOrEqual(percentageText.frame.maxY, canvasFrame.minY)
+    XCTAssertLessThanOrEqual(progressBar.frame.maxY, canvasFrame.minY)
+
+    // Its space was reserved while hidden, so the entropy box did not move or resize.
+    XCTAssertEqual(canvasFrame, canvasFrameBefore)
+  }
+
+  @MainActor
+  func testSwipeHintAppearsWhenIdleAndHidesOnTouch() throws {
+    let app = launchApp()
+
+    let canvas = app.otherElements["entropy_canvas"]
+    XCTAssertTrue(canvas.waitForExistence(timeout: 5.0))
+
+    // Not shown before ~5 s of idle.
+    let hint = app.descendants(matching: .any)["entropy_swipe_hint"]
+    XCTAssertFalse(hint.waitForExistence(timeout: 2.5))
+
+    // Appears after ~5 s of idle.
+    XCTAssertTrue(hint.waitForExistence(timeout: 8.0))
+
+    // Touching the box hides it immediately and restarts the idle countdown.
+    canvas.tap()
+    XCTAssertFalse(hint.exists)
+    XCTAssertFalse(hint.waitForExistence(timeout: 3.0))
+
+    // Reappears once idle again.
+    XCTAssertTrue(hint.waitForExistence(timeout: 8.0))
+  }
+
+  @MainActor
+  func testSwipeHintNeverAppearsAfterFullEntropy() throws {
+    let app = launchApp()
+
+    collectFullEntropy(app)
+
+    let hint = app.descendants(matching: .any)["entropy_swipe_hint"]
+    XCTAssertFalse(hint.exists)
+    XCTAssertFalse(hint.waitForExistence(timeout: 7.0))
   }
 
   @MainActor
