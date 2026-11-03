@@ -60,33 +60,88 @@ class EntropySwipeHintTest :
       trough.y shouldBe (height / 2f + 0.15f * height plusOrMinus 1e-3f)
     }
 
-    test("swipeHintPhase is null before 5 seconds of idle") {
-      swipeHintPhase(0L).shouldBeNull()
-      swipeHintPhase(4_999L).shouldBeNull()
+    test("swipeHintCycleMs is null before 5 seconds of idle") {
+      swipeHintCycleMs(0L).shouldBeNull()
+      swipeHintCycleMs(4_999L).shouldBeNull()
     }
 
-    test("swipeHintPhase plays for 1 second every 5 seconds start-to-start") {
-      swipeHintPhase(5_000L) shouldBe 0f
-      swipeHintPhase(5_500L) shouldBe 0.5f
-      swipeHintPhase(5_999L) shouldBe (0.999f plusOrMinus 1e-6f)
-      swipeHintPhase(6_000L).shouldBeNull()
-      swipeHintPhase(9_999L).shouldBeNull()
-      swipeHintPhase(10_000L) shouldBe 0f
-      swipeHintPhase(15_250L) shouldBe 0.25f
+    test("swipeHintCycleMs restarts every 5 seconds start-to-start and never ends while idle") {
+      swipeHintCycleMs(5_000L) shouldBe 0L
+      swipeHintCycleMs(6_000L) shouldBe 1_000L
+      swipeHintCycleMs(9_000L) shouldBe 4_000L
+      swipeHintCycleMs(9_999L) shouldBe 4_999L
+      swipeHintCycleMs(10_000L) shouldBe 0L
+      swipeHintCycleMs(15_250L) shouldBe 250L
     }
 
-    test("swipeHintDelayUntilNextStartMs counts down to each 5 second start") {
-      swipeHintDelayUntilNextStartMs(0L) shouldBe 5_000L
-      swipeHintDelayUntilNextStartMs(1_234L) shouldBe 3_766L
-      swipeHintDelayUntilNextStartMs(5_000L) shouldBe 0L
-      swipeHintDelayUntilNextStartMs(6_000L) shouldBe 4_000L
-      swipeHintDelayUntilNextStartMs(9_999L) shouldBe 1L
-      swipeHintDelayUntilNextStartMs(10_000L) shouldBe 0L
+    test("swipeHintIdleDelayMs waits until the first cycle and while the hand is parked") {
+      swipeHintIdleDelayMs(0L) shouldBe 5_000L
+      swipeHintIdleDelayMs(1_234L) shouldBe 3_766L
+      // Sweeping: render every frame.
+      swipeHintIdleDelayMs(5_000L) shouldBe 0L
+      swipeHintIdleDelayMs(6_999L) shouldBe 0L
+      // Parked: wait until the fade-out starts at 4.8 s into the cycle.
+      swipeHintIdleDelayMs(7_000L) shouldBe 2_800L
+      swipeHintIdleDelayMs(9_000L) shouldBe 800L
+      // Fading out: render every frame.
+      swipeHintIdleDelayMs(9_800L) shouldBe 0L
+      swipeHintIdleDelayMs(9_999L) shouldBe 0L
+      swipeHintIdleDelayMs(12_000L) shouldBe 2_800L
     }
 
-    test("swipeHintEnvelope fades in and out at the ends") {
-      swipeHintEnvelope(0f) shouldBe 0f
-      swipeHintEnvelope(0.5f) shouldBe 1f
-      swipeHintEnvelope(1f) shouldBe (0f plusOrMinus 1e-6f)
+    test("swipeHintFrame sweeps left to right over 2 seconds with a trail") {
+      val start = swipeHintFrame(0L, reduceMotion = false)
+      start.handProgress shouldBe 0f
+      start.handAlpha shouldBe 0f
+
+      val middle = swipeHintFrame(SWIPE_HINT_SWEEP_MS / 2, reduceMotion = false)
+      middle.handProgress shouldBe (0.5f plusOrMinus 1e-6f)
+      middle.handAlpha shouldBe 1f
+      middle.trailAlpha shouldBe 1f
+      middle.trailEnd shouldBe middle.handProgress
+      middle.trailStart shouldBeLessThan middle.trailEnd
+
+      val nearEnd = swipeHintFrame(SWIPE_HINT_SWEEP_MS - 1, reduceMotion = false)
+      nearEnd.handProgress shouldBeGreaterThan 0.99f
+      nearEnd.handAlpha shouldBe 1f
+      nearEnd.trailAlpha shouldBeLessThan 0.01f
+    }
+
+    test("swipeHintFrame parks the hand fully visible at the end of the path") {
+      for (cycleMs in listOf(SWIPE_HINT_SWEEP_MS, 3_000L, 4_000L, 4_799L)) {
+        for (reduceMotion in listOf(false, true)) {
+          val frame = swipeHintFrame(cycleMs, reduceMotion)
+          frame.handProgress shouldBe 1f
+          frame.handAlpha shouldBe 1f
+          frame.trailAlpha shouldBe 0f
+        }
+      }
+    }
+
+    test("swipeHintFrame fades the parked hand out just before the next sweep") {
+      for (reduceMotion in listOf(false, true)) {
+        swipeHintFrame(4_800L, reduceMotion).handAlpha shouldBe 1f
+        swipeHintFrame(4_900L, reduceMotion).handAlpha shouldBe (0.5f plusOrMinus 1e-6f)
+        swipeHintFrame(4_999L, reduceMotion).handAlpha shouldBeLessThan 0.01f
+        swipeHintFrame(4_999L, reduceMotion).handProgress shouldBe 1f
+      }
+    }
+
+    test("swipeHintFrame in reduce motion fades in place with a static wave") {
+      val start = swipeHintFrame(0L, reduceMotion = true)
+      start.handAlpha shouldBe 0f
+      start.trailAlpha shouldBe 0f
+
+      for (cycleMs in listOf(0L, 500L, 1_000L, 1_999L)) {
+        val frame = swipeHintFrame(cycleMs, reduceMotion = true)
+        frame.handProgress shouldBe 1f
+        frame.trailStart shouldBe 0f
+        frame.trailEnd shouldBe 1f
+      }
+      swipeHintFrame(500L, reduceMotion = true).handAlpha shouldBe (0.5f plusOrMinus 1e-6f)
+      swipeHintFrame(1_000L, reduceMotion = true).handAlpha shouldBe 1f
+      swipeHintFrame(1_000L, reduceMotion = true).trailAlpha shouldBe (1f plusOrMinus 1e-6f)
+      swipeHintFrame(1_999L, reduceMotion = true).handAlpha shouldBe 1f
+      swipeHintFrame(1_999L, reduceMotion = true).trailAlpha shouldBeLessThan 0.01f
     }
   })

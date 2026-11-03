@@ -98,23 +98,36 @@ class OnboardingScreenInstrumentedTest {
   }
 
   @Test
-  fun swipeHintRepeatsEveryFiveSecondsStartToStart() {
+  fun swipeHintPersistsThroughoutEachCycleWhileIdle() {
     composeTestRule.mainClock.autoAdvance = false
     setOnboardingContent()
     composeTestRule.mainClock.advanceTimeByFrame()
 
-    composeTestRule.mainClock.advanceTimeBy(5_300L)
-    composeTestRule.onNodeWithTag(ENTROPY_SWIPE_HINT_TAG).assertExists()
-
-    // The 1 s animation has finished.
-    composeTestRule.mainClock.advanceTimeBy(1_500L)
+    composeTestRule.mainClock.advanceTimeBy(4_500L)
     composeTestRule.onNodeWithTag(ENTROPY_SWIPE_HINT_TAG).assertDoesNotExist()
 
-    // Next animation starts 10 s after the last input.
-    composeTestRule.mainClock.advanceTimeBy(2_500L)
-    composeTestRule.onNodeWithTag(ENTROPY_SWIPE_HINT_TAG).assertDoesNotExist()
+    // Sweeping.
     composeTestRule.mainClock.advanceTimeBy(1_000L)
     composeTestRule.onNodeWithTag(ENTROPY_SWIPE_HINT_TAG).assertExists()
+
+    // Parked at the end of the path after the 2 s sweep, ~4 s into the cycle.
+    composeTestRule.mainClock.advanceTimeBy(3_500L)
+    composeTestRule.onNodeWithTag(ENTROPY_SWIPE_HINT_TAG).assertExists()
+
+    // Into the next cycle (10 s after the last input) and its parked phase.
+    composeTestRule.mainClock.advanceTimeBy(1_500L)
+    composeTestRule.onNodeWithTag(ENTROPY_SWIPE_HINT_TAG).assertExists()
+    composeTestRule.mainClock.advanceTimeBy(3_000L)
+    composeTestRule.onNodeWithTag(ENTROPY_SWIPE_HINT_TAG).assertExists()
+
+    // Touching while the hand is parked hides it immediately.
+    composeTestRule.onNodeWithTag(ENTROPY_CANVAS_TAG).performTouchInput { down(center) }
+    composeTestRule.mainClock.advanceTimeByFrame()
+    composeTestRule.onNodeWithTag(ENTROPY_SWIPE_HINT_TAG).assertDoesNotExist()
+    composeTestRule.onNodeWithTag(ENTROPY_CANVAS_TAG).performTouchInput { up() }
+    composeTestRule.mainClock.advanceTimeByFrame()
+    composeTestRule.mainClock.advanceTimeBy(4_500L)
+    composeTestRule.onNodeWithTag(ENTROPY_SWIPE_HINT_TAG).assertDoesNotExist()
   }
 
   @Test
