@@ -1,9 +1,9 @@
 # Release Tool
 
 `release_tool.py` contains the helpers used by the
-[`android-release`](../../.github/workflows/android-release.yml) GitHub Actions workflow to read
-and validate APK version info, verify signatures, check that the version increases relative to
-existing GitHub releases, and render release notes. It depends only on the Python standard library;
+[`android-release`](../../.github/workflows/android-release.yml) GitHub Actions workflow to read and
+validate APK version info, verify signatures, check that the version increases relative to existing
+GitHub releases, and render release notes. It depends only on the Python standard library;
 `requirements.txt` lists development tools only.
 
 - [Creating the Python Virtualenv](#creating-the-python-virtualenv)
