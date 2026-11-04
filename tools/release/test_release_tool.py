@@ -51,6 +51,29 @@ SAMPLE_APKSIGNER = (
   f"Signer #1 certificate MD5 digest: {'ef' * 16}\n"
 )
 
+# Output for an APK with minSdk >= 28, which apksigner signs only with v3 (captured from a real
+# `apksigner verify --verbose --print-certs` run with build-tools 37.0.0).
+SAMPLE_APKSIGNER_V3_ONLY = (
+  "Verifies\n"
+  "Verified using v1 scheme (JAR signing): false\n"
+  "Verified using v2 scheme (APK Signature Scheme v2): false\n"
+  "Verified using v3 scheme (APK Signature Scheme v3): true\n"
+  "Verified using v3.1 scheme (APK Signature Scheme v3.1): false\n"
+  "Verified using v3.2 scheme (APK Signature Scheme v3.2): false\n"
+  "Verified using v4 scheme (APK Signature Scheme v4): false\n"
+  "Verified for SourceStamp: false\n"
+  "Number of signers: 1\n"
+  "V3.0 Signer: certificate DN: CN=shhhhhh\n"
+  f"V3.0 Signer: certificate SHA-256 digest: {DIGEST}\n"
+  f"V3.0 Signer: certificate SHA-1 digest: {'cd' * 20}\n"
+  f"V3.0 Signer: certificate MD5 digest: {'ef' * 16}\n"
+  "V3.0 Signer: key algorithm: RSA\n"
+  "V3.0 Signer: key size (bits): 4096\n"
+  f"V3.0 Signer: public key SHA-256 digest: {'99' * 32}\n"
+  f"V3.0 Signer: public key SHA-1 digest: {'88' * 20}\n"
+  f"V3.0 Signer: public key MD5 digest: {'77' * 16}\n"
+)
+
 
 def release(tag: str, *, draft: bool = False, assets: tuple[str, ...] = ()) -> Release:
   return Release(
@@ -136,6 +159,25 @@ class ParseBadgingTest(unittest.TestCase):
 class ParseCertDigestTest(unittest.TestCase):
   def test_parse_cert_digest(self) -> None:
     self.assertEqual(parse_cert_digest(SAMPLE_APKSIGNER), DIGEST)
+
+  def test_parse_cert_digest_v3_only(self) -> None:
+    self.assertEqual(parse_cert_digest(SAMPLE_APKSIGNER_V3_ONLY), DIGEST)
+
+  def test_public_key_digest_is_not_mistaken_for_certificate_digest(self) -> None:
+    output = "\n".join(
+      line for line in SAMPLE_APKSIGNER_V3_ONLY.splitlines() if "certificate SHA-256" not in line
+    )
+    with self.assertRaisesRegex(ReleaseToolError, "found 0"):
+      parse_cert_digest(output)
+
+  def test_same_digest_reported_by_multiple_schemes(self) -> None:
+    output = SAMPLE_APKSIGNER_V3_ONLY + f"V3.1 Signer: certificate SHA-256 digest: {DIGEST}\n"
+    self.assertEqual(parse_cert_digest(output), DIGEST)
+
+  def test_different_digests_rejected(self) -> None:
+    output = SAMPLE_APKSIGNER_V3_ONLY + f"V3.1 Signer: certificate SHA-256 digest: {'12' * 32}\n"
+    with self.assertRaisesRegex(ReleaseToolError, "found 2"):
+      parse_cert_digest(output)
 
   def test_uppercase_digest_is_lowercased(self) -> None:
     output = SAMPLE_APKSIGNER.replace(DIGEST, DIGEST.upper())
