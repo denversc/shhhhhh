@@ -51,33 +51,31 @@ for arg in "$@"; do
   fi
 done
 
+typeset -a ignore_paths=(
+  ".gitignore"
+  ".prettierignore"
+  "android/.gitignore"
+  "android/app/.gitignore"
+  "ios/.gitignore"
+  "ios/shhhhhh/shhhhhh/Assets.xcassets/.prettierignore"
+  "ios/ShhhhhhCore/.gitignore"
+  "tools/daily_actions_summary/.gitignore"
+  "tools/icon/.gitignore"
+  "tools/icon/.prettierignore"
+  "tools/prettier/.gitignore"
+  "tools/prettier/.prettierignore"
+  "tools/release/.gitignore"
+)
+
 typeset -a args=(
   "${tools_dir}/node_modules/.bin/prettier"
   "--config"
   "${shhhhhh_root_dir}/.prettierrc.yaml"
-  "--ignore-path"
-  "${shhhhhh_root_dir}/.gitignore"
-  "--ignore-path"
-  "${shhhhhh_root_dir}/android/.gitignore"
-  "--ignore-path"
-  "${shhhhhh_root_dir}/android/app/.gitignore"
-  "--ignore-path"
-  "${shhhhhh_root_dir}/ios/.gitignore"
-  "--ignore-path"
-  "${shhhhhh_root_dir}/tools/daily_actions_summary/.gitignore"
-  "--ignore-path"
-  "${shhhhhh_root_dir}/tools/icon/.gitignore"
-  "--ignore-path"
-  "${shhhhhh_root_dir}/tools/prettier/.gitignore"
-  "--ignore-path"
-  "${shhhhhh_root_dir}/.prettierignore"
-  "--ignore-path"
-  "${shhhhhh_root_dir}/ios/shhhhhh/shhhhhh/Assets.xcassets/.prettierignore"
-  "--ignore-path"
-  "${shhhhhh_root_dir}/tools/icon/.prettierignore"
-  "--ignore-path"
-  "${shhhhhh_root_dir}/tools/prettier/.prettierignore"
 )
+
+for ignore_path in "${ignore_paths[@]}" ; do
+  args+=("--ignore-path" "${shhhhhh_root_dir}/${ignore_path}")
+done
 
 if (( ! has_mode )); then
   args+=("--write")
