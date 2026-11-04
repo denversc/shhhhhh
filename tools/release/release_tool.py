@@ -140,8 +140,13 @@ def read_apk_info(aapt2: Path, apk: Path) -> ApkInfo:
   return parse_badging(result.stdout)
 
 
+# apksigner labels the certificate lines differently depending on which signature schemes are
+# present: "Signer #1 certificate SHA-256 digest: ..." when a v1/v2 signature is present, but
+# "V3.0 Signer: certificate SHA-256 digest: ..." (or "V3.1 Signer: ...") when the APK only has
+# v3+ signatures, which is the case when minSdk >= 28 because apksigner then skips v1 and v2.
 _CERT_DIGEST_LINE = re.compile(
-  r"^Signer #(?P<index>[0-9]+) certificate SHA-256 digest: (?P<digest>[0-9a-fA-F]{64})$",
+  r"^(?:Signer #[0-9]+ |V[0-9]+(?:\.[0-9]+)* Signer(?: #[0-9]+)?: )"
+  r"certificate SHA-256 digest: (?P<digest>[0-9a-fA-F]{64})$",
   re.MULTILINE,
 )
 _SIGNER_COUNT_LINE = re.compile(r"^Number of signers: (?P<count>[0-9]+)$", re.MULTILINE)
@@ -152,7 +157,8 @@ def parse_cert_digest(apksigner_output: str) -> str:
   Parse the output of `apksigner verify --verbose --print-certs`.
 
   Returns the lowercase hex SHA-256 digest of the signing certificate, requiring that there is
-  exactly one signer.
+  exactly one signer. The digest may be reported more than once (e.g. once per signature scheme);
+  all reported digests must be identical.
   """
   count_match = _SIGNER_COUNT_LINE.search(apksigner_output)
   if count_match is None:
@@ -161,12 +167,14 @@ def parse_cert_digest(apksigner_output: str) -> str:
     msg = f"expected exactly 1 signer, but apksigner reported {count_match.group('count')}"
     raise ReleaseToolError(msg)
 
-  digests = _CERT_DIGEST_LINE.findall(apksigner_output)
+  digests = {m.group("digest").lower() for m in _CERT_DIGEST_LINE.finditer(apksigner_output)}
   if len(digests) != 1:
-    msg = f"expected exactly 1 certificate SHA-256 digest in apksigner output, found {len(digests)}"
+    msg = (
+      "expected exactly 1 distinct certificate SHA-256 digest in apksigner output, "
+      f"found {len(digests)}"
+    )
     raise ReleaseToolError(msg)
-  _index, digest = cast("tuple[str, str]", digests[0])
-  return digest.lower()
+  return digests.pop()
 
 
 def verify_and_read_cert_digest(apksigner: Path, apk: Path) -> str:
