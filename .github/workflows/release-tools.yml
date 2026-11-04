@@ -1,0 +1,174 @@
+name: release-tools
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/release-tools.yml"
+      - "tools/release/**"
+  schedule:
+    - cron: "0 11 * * *" # Run nightly at 11am UTC (3am Pacific, 6am Eastern)
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: git checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
+        with:
+          show-progress: false
+          persist-credentials: false
+
+      - name: setup python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # ratchet:actions/setup-python@v7.1.0
+        with:
+          python-version: "3.15"
+
+      - name: install python dependencies
+        run: |
+          pip install -r tools/release/requirements.txt
+
+      - name: ruff check
+        id: lint_check
+        continue-on-error: true
+        working-directory: tools/release
+        run: |
+          ruff check --diff --verbose --no-cache --output-format=github --exit-non-zero-on-fix
+
+      - name: generate lint patch on failure
+        if: steps.lint_check.outcome == 'failure'
+        working-directory: tools/release
+        run: |
+          ruff check --fix --no-cache || true
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git diff > ../../lint.patch
+          fi
+
+      - name: upload lint patch artifact
+        if: steps.lint_check.outcome == 'failure'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # ratchet:actions/upload-artifact@v7
+        with:
+          name: lint-patch
+          path: lint.patch
+          retention-days: 5
+          if-no-files-found: ignore
+
+      - name: fail job if check failed
+        if: steps.lint_check.outcome == 'failure'
+        run: |
+          if [[ -f lint.patch ]]; then
+            echo "::error::Authoritative ruff lint check failed. Download and apply the 'lint-patch' artifact or run ruff check --fix locally."
+          else
+            echo "::error::Authoritative ruff lint check failed. No automatic fixes available; inspect the log for details."
+          fi
+          exit 1
+
+  format:
+    name: format
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: git checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
+        with:
+          show-progress: false
+          persist-credentials: false
+
+      - name: setup python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # ratchet:actions/setup-python@v7.1.0
+        with:
+          python-version: "3.15"
+
+      - name: install python dependencies
+        run: |
+          pip install -r tools/release/requirements.txt
+
+      - name: ruff format check
+        id: format_check
+        continue-on-error: true
+        working-directory: tools/release
+        run: |
+          ruff format --diff --verbose --no-cache
+
+      - name: generate format patch on failure
+        if: steps.format_check.outcome == 'failure'
+        working-directory: tools/release
+        run: |
+          ruff format --verbose --no-cache
+          git diff > ../../format.patch
+
+      - name: upload format patch artifact
+        if: steps.format_check.outcome == 'failure'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # ratchet:actions/upload-artifact@v7
+        with:
+          name: format-patch
+          path: format.patch
+          retention-days: 5
+
+      - name: fail job if check failed
+        if: steps.format_check.outcome == 'failure'
+        run: |
+          echo "::error::Authoritative ruff format check failed. Download and apply the 'format-patch' artifact or run ruff format locally."
+          exit 1
+
+  type-check:
+    name: type-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: git checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
+        with:
+          show-progress: false
+          persist-credentials: false
+
+      - name: setup python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # ratchet:actions/setup-python@v7.1.0
+        with:
+          python-version: "3.15"
+
+      - name: install python dependencies
+        run: |
+          pip install -r tools/release/requirements.txt
+
+      - name: pyright
+        working-directory: tools/release
+        run: |
+          pyright --warnings --stats
+
+  unit-tests:
+    name: unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: git checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
+        with:
+          show-progress: false
+          persist-credentials: false
+
+      - name: setup python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # ratchet:actions/setup-python@v7.1.0
+        with:
+          python-version: "3.15"
+
+      - name: install python dependencies
+        run: |
+          pip install -r tools/release/requirements.txt
+
+      - name: run unit tests
+        run: |
+          python3 -m unittest discover -s tools/release -p "test_*.py"
