@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, cast, override
 
 if TYPE_CHECKING:
-  from collections.abc import Mapping, Sequence
+  from collections.abc import Callable, Mapping, Sequence
 
 GITHUB_API_URL = "https://api.github.com"
 USER_AGENT = "shhhhhh-release-tool"
@@ -115,13 +115,13 @@ def parse_badging(badging: str) -> ApkInfo:
 
   missing = [key for key in ("name", "versionCode", "versionName") if key not in attrs]
   if missing:
-    raise ReleaseToolError(
-      f"aapt2 badging `package:` line is missing attribute(s): {', '.join(missing)}"
-    )
+    msg = f"aapt2 badging `package:` line is missing attribute(s): {', '.join(missing)}"
+    raise ReleaseToolError(msg)
 
   version_code_str = attrs["versionCode"]
   if not re.fullmatch(r"[1-9][0-9]*", version_code_str):
-    raise ReleaseToolError(f"invalid versionCode in APK: {version_code_str!r}")
+    msg = f"invalid versionCode in APK: {version_code_str!r}"
+    raise ReleaseToolError(msg)
 
   return ApkInfo(
     package_name=attrs["name"],
@@ -131,7 +131,7 @@ def parse_badging(badging: str) -> ApkInfo:
 
 
 def read_apk_info(aapt2: Path, apk: Path) -> ApkInfo:
-  result = subprocess.run(
+  result = subprocess.run(  # noqa: S603 - arguments are tool paths and file paths from the workflow
     [str(aapt2), "dump", "badging", str(apk)],
     check=True,
     capture_output=True,
@@ -158,21 +158,19 @@ def parse_cert_digest(apksigner_output: str) -> str:
   if count_match is None:
     raise ReleaseToolError("`Number of signers:` line not found in apksigner output")
   if int(count_match.group("count")) != 1:
-    raise ReleaseToolError(
-      f"expected exactly 1 signer, but apksigner reported {count_match.group('count')}"
-    )
+    msg = f"expected exactly 1 signer, but apksigner reported {count_match.group('count')}"
+    raise ReleaseToolError(msg)
 
   digests = _CERT_DIGEST_LINE.findall(apksigner_output)
   if len(digests) != 1:
-    raise ReleaseToolError(
-      f"expected exactly 1 certificate SHA-256 digest in apksigner output, found {len(digests)}"
-    )
+    msg = f"expected exactly 1 certificate SHA-256 digest in apksigner output, found {len(digests)}"
+    raise ReleaseToolError(msg)
   _index, digest = cast("tuple[str, str]", digests[0])
   return digest.lower()
 
 
 def verify_and_read_cert_digest(apksigner: Path, apk: Path) -> str:
-  result = subprocess.run(
+  result = subprocess.run(  # noqa: S603 - arguments are tool paths and file paths from the workflow
     [str(apksigner), "verify", "--verbose", "--print-certs", str(apk)],
     check=False,
     capture_output=True,
@@ -181,7 +179,8 @@ def verify_and_read_cert_digest(apksigner: Path, apk: Path) -> str:
   print(result.stdout, end="")
   print(result.stderr, end="", file=sys.stderr)
   if result.returncode != 0:
-    raise ReleaseToolError(f"apksigner verify failed with exit code {result.returncode}")
+    msg = f"apksigner verify failed with exit code {result.returncode}"
+    raise ReleaseToolError(msg)
   return parse_cert_digest(result.stdout)
 
 
@@ -237,7 +236,7 @@ class GitHubClient:
       "X-GitHub-Api-Version": "2022-11-28",
     }
 
-  def _get_json(self, path: str) -> Any:
+  def _get_json(self, path: str) -> object:
     req = urllib.request.Request(
       f"{self.api_url}{path}", headers=self._headers("application/vnd.github+json")
     )
@@ -291,7 +290,8 @@ class GitHubClient:
         raise
       location = err.headers.get("Location")
       if not location:
-        raise ReleaseToolError(f"redirect without Location header for asset {asset.name}") from err
+        msg = f"redirect without Location header for asset {asset.name}"
+        raise ReleaseToolError(msg) from err
 
     redirect_req = urllib.request.Request(location, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(redirect_req) as resp:
@@ -310,7 +310,7 @@ class PreviousRelease:
 
 
 def find_highest_release(
-  releases: Sequence[Release], warn: Any = None
+  releases: Sequence[Release], warn: Callable[[str], None] | None = None
 ) -> PreviousRelease | None:
   """
   Find the release whose tag is the highest `v<MAJOR.MINOR.PATCH>` version.
@@ -340,26 +340,31 @@ def check_new_version_against_releases(
   for release in releases:
     if release.tag_name == new_version.tag:
       kind = "draft release" if release.draft else "release"
-      raise ReleaseToolError(
+      msg = (
         f"a {kind} with tag {new_version.tag} already exists; "
         "bump versionName (or delete the existing draft) and try again"
       )
+      raise ReleaseToolError(msg)
 
   highest = find_highest_release(releases, warn=_warn)
   if highest is not None and new_version <= highest.version:
-    raise ReleaseToolError(
+    msg = (
       f"versionName {new_version} must be strictly greater than the highest existing release "
       f"version {highest.version} (tag {highest.release.tag_name})"
     )
+    raise ReleaseToolError(msg)
   return highest
 
 
-def check_version_code(new_version_code: int, previous_version_code: int, previous_tag: str) -> None:
+def check_version_code(
+  new_version_code: int, previous_version_code: int, previous_tag: str
+) -> None:
   if new_version_code <= previous_version_code:
-    raise ReleaseToolError(
+    msg = (
       f"versionCode {new_version_code} must be strictly greater than versionCode "
       f"{previous_version_code} of the previous release {previous_tag}"
     )
+    raise ReleaseToolError(msg)
 
 
 def find_apk_asset(release: Release, asset_prefix: str, version: SemVer) -> ReleaseAsset:
@@ -367,10 +372,11 @@ def find_apk_asset(release: Release, asset_prefix: str, version: SemVer) -> Rele
   for asset in release.assets:
     if asset.name == expected_name:
       return asset
-  raise ReleaseToolError(
+  msg = (
     f"release {release.tag_name} has no asset named {expected_name}; "
     f"found: {', '.join(a.name for a in release.assets) or '(none)'}"
   )
+  raise ReleaseToolError(msg)
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -423,7 +429,8 @@ def write_github_outputs(outputs: Mapping[str, str]) -> None:
   """Write step outputs to `$GITHUB_OUTPUT` (if set) and always echo them to stdout."""
   for key, value in outputs.items():
     if "\n" in value or "\r" in value:
-      raise ReleaseToolError(f"output {key!r} must not contain newlines")
+      msg = f"output {key!r} must not contain newlines"
+      raise ReleaseToolError(msg)
     print(f"{key}={value}")
 
   output_path = os.environ.get("GITHUB_OUTPUT")
@@ -447,16 +454,18 @@ def cmd_apk_info(args: argparse.Namespace) -> None:
   )
 
   if info.package_name != args.expected_package:
-    raise ReleaseToolError(
+    msg = (
       f"APK package name {info.package_name!r} does not match expected {args.expected_package!r}"
     )
+    raise ReleaseToolError(msg)
 
   version = SemVer.parse(info.version_name)
   if version is None:
-    raise ReleaseToolError(
+    msg = (
       f"versionName {info.version_name!r} is not a plain MAJOR.MINOR.PATCH semantic version "
       "(three non-negative integers without leading zeros, and no suffix such as '-dev')"
     )
+    raise ReleaseToolError(msg)
 
   write_github_outputs(
     {
@@ -476,14 +485,14 @@ def cmd_cert_digest(args: argparse.Namespace) -> None:
 def cmd_check_version(args: argparse.Namespace) -> None:
   new_version = SemVer.parse(args.version_name)
   if new_version is None:
-    raise ReleaseToolError(
-      f"versionName {args.version_name!r} is not a plain MAJOR.MINOR.PATCH semantic version"
-    )
+    msg = f"versionName {args.version_name!r} is not a plain MAJOR.MINOR.PATCH semantic version"
+    raise ReleaseToolError(msg)
 
   client = GitHubClient(args.repo, args.token)
 
   if client.tag_exists(new_version.tag):
-    raise ReleaseToolError(f"tag {new_version.tag} already exists in {args.repo}")
+    msg = f"tag {new_version.tag} already exists in {args.repo}"
+    raise ReleaseToolError(msg)
 
   releases = client.list_releases()
   print(f"Found {len(releases)} existing release(s) in {args.repo}.", file=sys.stderr)
@@ -511,12 +520,15 @@ def cmd_check_version(args: argparse.Namespace) -> None:
 def cmd_release_notes(args: argparse.Namespace) -> None:
   version = SemVer.parse(args.version_name)
   if version is None:
-    raise ReleaseToolError(f"invalid versionName: {args.version_name!r}")
+    msg = f"invalid versionName: {args.version_name!r}"
+    raise ReleaseToolError(msg)
   if not re.fullmatch(r"[0-9a-f]{40}", args.commit):
-    raise ReleaseToolError(f"invalid commit SHA: {args.commit!r}")
+    msg = f"invalid commit SHA: {args.commit!r}"
+    raise ReleaseToolError(msg)
   for name, value in (("apk-sha256", args.apk_sha256), ("cert-sha256", args.cert_sha256)):
     if not re.fullmatch(r"[0-9a-fA-F]{64}", value):
-      raise ReleaseToolError(f"invalid --{name}: {value!r}")
+      msg = f"invalid --{name}: {value!r}"
+      raise ReleaseToolError(msg)
 
   body = format_release_notes(
     ReleaseNotesInput(
