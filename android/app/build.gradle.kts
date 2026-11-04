@@ -24,14 +24,7 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
-  buildTypes {
-    release {
-      optimization {
-        enable = true
-        packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
-      }
-    }
-  }
+  buildTypes { release { optimization { enable = true } } }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
