@@ -307,4 +307,116 @@ struct shhhhhhTests {
     sheet.onDismiss()
     #expect(dismissCalled)
   }
+
+  // MARK: - SwipeHint Tests
+
+  @Test func testSwipeHintEaseInOutEndpointsAndMidpoint() throws {
+    #expect(SwipeHint.easeInOut(0) == 0)
+    #expect(SwipeHint.easeInOut(1) == 1)
+    #expect(abs(SwipeHint.easeInOut(0.5) - 0.5) < 1e-9)
+    // Clamped outside 0...1
+    #expect(SwipeHint.easeInOut(-1) == 0)
+    #expect(SwipeHint.easeInOut(2) == 1)
+  }
+
+  @Test func testSwipeHintEaseInOutAcceleratesThenDecelerates() throws {
+    let dt = 0.1
+    let speeds = stride(from: 0.0, to: 1.0, by: dt).map {
+      SwipeHint.easeInOut($0 + dt) - SwipeHint.easeInOut($0)
+    }
+    // Monotonic increasing (never moves backwards).
+    #expect(speeds.allSatisfy { $0 > 0 })
+    // Fastest in the middle, slow at both ends.
+    let maxIndex = speeds.indices.max { speeds[$0] < speeds[$1] }!
+    #expect(maxIndex == 4 || maxIndex == 5)
+    #expect(speeds.first! < speeds[maxIndex] / 4)
+    #expect(speeds.last! < speeds[maxIndex] / 4)
+  }
+
+  @Test func testSwipeHintWavePointGeometry() throws {
+    let size = CGSize(width: 300, height: 200)
+    let start = SwipeHint.wavePoint(progress: 0, in: size)
+    let mid = SwipeHint.wavePoint(progress: 0.5, in: size)
+    let end = SwipeHint.wavePoint(progress: 1, in: size)
+
+    // Left to right, inset from the edges, starting/crossing/ending on the vertical center.
+    #expect(start.x > 0 && start.x < mid.x && mid.x < end.x && end.x < size.width)
+    #expect(abs(start.y - 100) < 1e-6)
+    #expect(abs(mid.y - 100) < 1e-6)
+    #expect(abs(end.y - 100) < 1e-6)
+
+    // S-curve: rises (smaller y) in the first half, dips in the second, amplitude 15% of height.
+    let quarter = SwipeHint.wavePoint(progress: 0.25, in: size)
+    let threeQuarter = SwipeHint.wavePoint(progress: 0.75, in: size)
+    #expect(abs(quarter.y - (100 - 30)) < 1e-6)
+    #expect(abs(threeQuarter.y - (100 + 30)) < 1e-6)
+
+    // Never leaves the +/-15% band.
+    for i in 0...100 {
+      let p = SwipeHint.wavePoint(progress: Double(i) / 100, in: size)
+      #expect(abs(p.y - 100) <= 30 + 1e-6)
+    }
+  }
+
+  @Test func testSwipeHintTrailEndsAtFingertip() throws {
+    let size = CGSize(width: 300, height: 200)
+    let trail = SwipeHint.trailPoints(animationProgress: 0.6, in: size)
+    #expect(trail.count > 2)
+    #expect(trail.last == SwipeHint.fingertipPoint(animationProgress: 0.6, in: size))
+    #expect(trail.first == SwipeHint.fingertipPoint(animationProgress: 0.3, in: size))
+    // At the very start there is no trail yet, just the fingertip.
+    #expect(SwipeHint.trailPoints(animationProgress: 0, in: size).count == 1)
+  }
+
+  @Test func testSwipeHintCycleTimingConstants() throws {
+    #expect(SwipeHint.idleDelay == 5)
+    #expect(SwipeHint.period == 5)
+    #expect(SwipeHint.duration == 2)
+    #expect(SwipeHint.handFadeOutDuration == 0.2)
+  }
+
+  @Test func testSwipeHintCycleTimeRepeatsEveryPeriod() throws {
+    #expect(SwipeHint.cycleTime(sinceFirstSweepStart: -1) == 0)
+    #expect(SwipeHint.cycleTime(sinceFirstSweepStart: 0) == 0)
+    #expect(SwipeHint.cycleTime(sinceFirstSweepStart: 3) == 3)
+    #expect(SwipeHint.cycleTime(sinceFirstSweepStart: 5) == 0)
+    #expect(abs(SwipeHint.cycleTime(sinceFirstSweepStart: 12.5) - 2.5) < 1e-9)
+  }
+
+  @Test func testSwipeHintSweepProgressParksAtEnd() throws {
+    #expect(SwipeHint.sweepProgress(cycleTime: 0) == 0)
+    #expect(SwipeHint.sweepProgress(cycleTime: 1) == 0.5)
+    #expect(SwipeHint.sweepProgress(cycleTime: 2) == 1)
+    #expect(SwipeHint.sweepProgress(cycleTime: 4.5) == 1)
+  }
+
+  @Test func testSwipeHintHandPersistsUntilJustBeforeNextSweep() throws {
+    for reduceMotion in [false, true] {
+      // Fades in from transparent at the start of the sweep.
+      #expect(SwipeHint.handOpacity(cycleTime: 0, reduceMotion: reduceMotion) == 0)
+      // Fully visible after the sweep while parked, e.g. ~4 s into the cycle.
+      #expect(SwipeHint.handOpacity(cycleTime: 1.5, reduceMotion: reduceMotion) == 1)
+      #expect(SwipeHint.handOpacity(cycleTime: 2.5, reduceMotion: reduceMotion) == 1)
+      #expect(SwipeHint.handOpacity(cycleTime: 4.0, reduceMotion: reduceMotion) == 1)
+      #expect(SwipeHint.handOpacity(cycleTime: 4.8, reduceMotion: reduceMotion) == 1)
+      // Quick fade-out finishing right at the next sweep start.
+      #expect(abs(SwipeHint.handOpacity(cycleTime: 4.9, reduceMotion: reduceMotion) - 0.5) < 1e-9)
+      #expect(SwipeHint.handOpacity(cycleTime: 5.0, reduceMotion: reduceMotion) == 0)
+    }
+    // Without Reduce Motion the hand fades in quickly (within the first 10% of the sweep).
+    #expect(SwipeHint.handOpacity(cycleTime: 0.2, reduceMotion: false) == 1)
+    #expect(SwipeHint.handOpacity(cycleTime: 0.2, reduceMotion: true) < 1)
+  }
+
+  @Test func testSwipeHintTrailFadesDuringSweepOnly() throws {
+    for reduceMotion in [false, true] {
+      #expect(SwipeHint.trailOpacity(cycleTime: 0, reduceMotion: reduceMotion) == 0)
+      #expect(abs(SwipeHint.trailOpacity(cycleTime: 1, reduceMotion: reduceMotion) - 1) < 1e-9)
+      #expect(abs(SwipeHint.trailOpacity(cycleTime: 2, reduceMotion: reduceMotion)) < 1e-9)
+      #expect(SwipeHint.trailOpacity(cycleTime: 3, reduceMotion: reduceMotion) == 0)
+    }
+    // With motion, the trail is fading out over the last 20% of the sweep.
+    let fading = SwipeHint.trailOpacity(cycleTime: 1.8, reduceMotion: false)
+    #expect(fading > 0 && fading < 1)
+  }
 }

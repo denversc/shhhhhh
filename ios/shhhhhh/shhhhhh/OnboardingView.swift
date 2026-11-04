@@ -24,6 +24,7 @@ private let minMoveDistance: CGFloat = 3.0
 private let maxVisualSegments: Int = 360
 private let maxVisualDots: Int = 80
 private let minKeygenSpinnerMs: UInt64 = 650
+private let progressSectionFadeInSeconds: Double = 0.2
 private let brandBlue = Color(red: 0x1A / 255.0, green: 0x73 / 255.0, blue: 0xE8 / 255.0)
 
 struct OnboardingView: View {
@@ -40,10 +41,33 @@ struct OnboardingView: View {
   @State private var currentGestureLastPoint: CGPoint? = nil
   @State private var currentGestureHasDragged: Bool = false
 
+  // Idle swipe hint state. `hintStartDate` is the start of the first sweep, and is non-nil only while
+  // the hint overlay is shown.
+  @State private var hintStartDate: Date? = nil
+  @State private var hintIdleGeneration: Int = 0
+  @GestureState private var isFingerDown: Bool = false
+
+  @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
   private let entropyAccumulator = EntropyAccumulator()
 
   private var hasReachedFullEntropy: Bool {
     progress >= 1.0
+  }
+
+  private var hasCollectedEntropy: Bool {
+    progress > 0
+  }
+
+  /// Whether the idle swipe hint is allowed to run at all right now.
+  private var isSwipeHintEnabled: Bool {
+    !hasReachedFullEntropy && !isGenerating && !isKeyReady && !isFingerDown
+      && !showRestoreSheet && scenePhase == .active
+  }
+
+  private var swipeHintTaskKey: SwipeHintTaskKey {
+    SwipeHintTaskKey(isEnabled: isSwipeHintEnabled, idleGeneration: hintIdleGeneration)
   }
 
   var body: some View {
@@ -65,6 +89,22 @@ struct OnboardingView: View {
         }
         .frame(maxWidth: .infinity)
 
+        // Entropy Progress Section
+        // Hidden until the first entropy sample is collected, but its space stays reserved in the
+        // layout (by an invisible, non-accessible copy) so that the entropy box below never changes
+        // size or position when it appears. The real section is only inserted into the view tree
+        // once visible because `.accessibilityHidden` alone does not hide it from XCUITest.
+        ZStack {
+          EntropyProgressSection(progress: 0)
+            .hidden()
+            .accessibilityHidden(true)
+          if hasCollectedEntropy {
+            EntropyProgressSection(progress: progress)
+              .transition(.opacity)
+          }
+        }
+        .animation(.easeInOut(duration: progressSectionFadeInSeconds), value: hasCollectedEntropy)
+
         // Interactive Entropy Canvas Box
         ZStack(alignment: .center) {
           if segments.isEmpty && dots.isEmpty && progress == 0 {
@@ -80,6 +120,14 @@ struct OnboardingView: View {
             renderStrokes(in: &context)
           }
           .allowsHitTesting(false)
+
+          if let hintStartDate {
+            SwipeHintOverlay(startDate: hintStartDate, reduceMotion: reduceMotion)
+              .allowsHitTesting(false)
+              .accessibilityElement()
+              .accessibilityLabel("Swipe hint")
+              .accessibilityIdentifier("entropy_swipe_hint")
+          }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(uiColor: .secondarySystemBackground))
@@ -93,6 +141,9 @@ struct OnboardingView: View {
         .accessibilityIdentifier("entropy_canvas")
         .gesture(
           DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .updating($isFingerDown) { _, isDown, _ in
+              isDown = true
+            }
             .onChanged { value in
               handleDragChanged(value)
             }
@@ -101,25 +152,6 @@ struct OnboardingView: View {
             }
         )
         .disabled(hasReachedFullEntropy)
-
-        // Entropy Progress Section
-        VStack(spacing: 8) {
-          HStack {
-            Text("Entropy Collection")
-              .font(.footnote)
-              .fontWeight(.medium)
-            Spacer()
-            Text("\(Int(round(progress * 100)))%")
-              .font(.footnote)
-              .fontWeight(.semibold)
-              .foregroundColor(brandBlue)
-              .accessibilityIdentifier("entropy_percentage_text")
-          }
-
-          ProgressView(value: progress, total: 1.0)
-            .tint(brandBlue)
-            .accessibilityIdentifier("entropy_progress_bar")
-        }
 
         // Primary Action / Key Generation Status Button (50pt height, 10pt corner radius)
         Button(action: {
@@ -176,7 +208,35 @@ struct OnboardingView: View {
       .sheet(isPresented: $showRestoreSheet) {
         RestoreBackupSheet(onRestoreComplete: onComplete)
       }
+      .task(id: swipeHintTaskKey) {
+        await runSwipeHintLoop()
+      }
     }
+  }
+
+  // MARK: - Idle Swipe Hint
+
+  /// Shows the swipe hint overlay once the user has been idle for `SwipeHint.idleDelay` seconds.
+  /// From then on the overlay itself repeats the sweep every `SwipeHint.period` seconds.
+  ///
+  /// The task is restarted (via `swipeHintTaskKey`) on every entropy sample, finger down/up, and
+  /// whenever the hint becomes enabled/disabled, which hides the overlay and restarts the full idle
+  /// countdown.
+  private func runSwipeHintLoop() async {
+    hintStartDate = nil
+    guard isSwipeHintEnabled else { return }
+    do {
+      try await Task.sleep(nanoseconds: UInt64(SwipeHint.idleDelay * 1_000_000_000))
+    } catch {
+      return
+    }
+    hintStartDate = Date()
+  }
+
+  /// Hides any in-flight hint and restarts the idle countdown.
+  private func resetSwipeHintIdleTimer() {
+    hintStartDate = nil
+    hintIdleGeneration &+= 1
   }
 
   // MARK: - Gesture Handling
@@ -213,6 +273,7 @@ struct OnboardingView: View {
         currentGestureLastPoint = currentPoint
 
         progress = min(1.0, progress + moveEntropyIncrement)
+        resetSwipeHintIdleTimer()
         checkProgressTrigger()
       }
     } else {
@@ -234,6 +295,7 @@ struct OnboardingView: View {
       dots.append(currentPoint)
 
       progress = min(1.0, progress + tapEntropyIncrement)
+      resetSwipeHintIdleTimer()
       checkProgressTrigger()
     }
   }
@@ -241,6 +303,7 @@ struct OnboardingView: View {
   private func handleDragEnded() {
     currentGestureLastPoint = nil
     currentGestureHasDragged = false
+    resetSwipeHintIdleTimer()
   }
 
   // MARK: - Key Generation Trigger
@@ -309,6 +372,123 @@ struct OnboardingView: View {
       context.fill(
         Path(ellipseIn: rect),
         with: .color(brandBlue.opacity(alpha))
+      )
+    }
+  }
+}
+
+// MARK: - Entropy Progress Section
+
+/// "Entropy Collection" label, percentage, and progress bar shown above the entropy box.
+private struct EntropyProgressSection: View {
+  let progress: Double
+
+  var body: some View {
+    VStack(spacing: 8) {
+      HStack {
+        Text("Entropy Collection")
+          .font(.footnote)
+          .fontWeight(.medium)
+        Spacer()
+        Text("\(Int(round(progress * 100)))%")
+          .font(.footnote)
+          .fontWeight(.semibold)
+          .foregroundColor(brandBlue)
+          .accessibilityIdentifier("entropy_percentage_text")
+      }
+
+      ProgressView(value: progress, total: 1.0)
+        .tint(brandBlue)
+        .accessibilityIdentifier("entropy_progress_bar")
+    }
+  }
+}
+
+// MARK: - Idle Swipe Hint Overlay
+
+/// Identity of the idle swipe hint task; any change restarts the task (and the idle countdown).
+private struct SwipeHintTaskKey: Equatable {
+  let isEnabled: Bool
+  let idleGeneration: Int
+}
+
+/// Purely visual overlay that repeats the swipe hint every `SwipeHint.period` seconds, with the
+/// first sweep starting at `startDate`.
+///
+/// A semi-transparent pointing hand sweeps left-to-right along `SwipeHint`'s wave path, trailed by
+/// a short fading brand-blue stroke, then stays parked at the right end until it quickly fades out
+/// just before the next sweep. With Reduce Motion, the hand stays at the end of a static wave that
+/// fades in and out in place instead, and the hand likewise stays visible until the next cycle.
+private struct SwipeHintOverlay: View {
+  let startDate: Date
+  let reduceMotion: Bool
+
+  private static let iconSize: CGFloat = 48
+  /// Offset from the fingertip to the center of the `hand.point.up.left.fill` glyph, whose
+  /// fingertip sits near the glyph's top-left corner.
+  private static let fingertipToIconCenter = CGSize(width: 18, height: 20)
+  private static let trailLineWidth: CGFloat = 3
+  private static let trailMaxOpacity: Double = 0.6
+  private static let staticWaveOpacity: Double = 0.4
+  private static let handOpacity: Double = 0.45
+
+  var body: some View {
+    TimelineView(.animation) { timeline in
+      let cycleTime = SwipeHint.cycleTime(
+        sinceFirstSweepStart: timeline.date.timeIntervalSince(startDate))
+      let t = SwipeHint.sweepProgress(cycleTime: cycleTime)
+      let trailOpacity = SwipeHint.trailOpacity(cycleTime: cycleTime, reduceMotion: reduceMotion)
+      let handOpacity = SwipeHint.handOpacity(cycleTime: cycleTime, reduceMotion: reduceMotion)
+      GeometryReader { geometry in
+        let size = geometry.size
+        let tip =
+          reduceMotion
+          ? SwipeHint.wavePoint(progress: 1, in: size)
+          : SwipeHint.fingertipPoint(animationProgress: t, in: size)
+
+        ZStack {
+          Canvas { context, canvasSize in
+            if reduceMotion {
+              strokeWave(
+                SwipeHint.fullWavePoints(in: canvasSize), opacity: { _ in Self.staticWaveOpacity },
+                in: &context)
+            } else {
+              strokeWave(
+                SwipeHint.trailPoints(animationProgress: t, in: canvasSize),
+                opacity: { ratio in Self.trailMaxOpacity * ratio }, in: &context)
+            }
+          }
+          .opacity(trailOpacity)
+
+          Image(systemName: "hand.point.up.left.fill")
+            .font(.system(size: Self.iconSize))
+            .foregroundStyle(Color(uiColor: .label).opacity(Self.handOpacity))
+            .position(
+              x: tip.x + Self.fingertipToIconCenter.width,
+              y: tip.y + Self.fingertipToIconCenter.height
+            )
+            .opacity(handOpacity)
+        }
+      }
+    }
+  }
+
+  /// Strokes consecutive segments of `points`, with per-segment opacity given by `opacity`, which
+  /// receives the segment's position along the polyline in `0...1` (oldest to newest).
+  private func strokeWave(
+    _ points: [CGPoint], opacity: (Double) -> Double, in context: inout GraphicsContext
+  ) {
+    guard points.count >= 2 else { return }
+    let segmentCount = points.count - 1
+    for i in 0..<segmentCount {
+      var path = Path()
+      path.move(to: points[i])
+      path.addLine(to: points[i + 1])
+      let ratio = Double(i + 1) / Double(segmentCount)
+      context.stroke(
+        path,
+        with: .color(brandBlue.opacity(opacity(ratio))),
+        style: StrokeStyle(lineWidth: Self.trailLineWidth, lineCap: .round, lineJoin: .round)
       )
     }
   }
