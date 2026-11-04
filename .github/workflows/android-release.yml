@@ -3,7 +3,7 @@ name: android-release
 # Builds a release APK of the Android app from a commit on `main`, signs it with the release signing
 # key, and creates a *draft* GitHub release containing the signed APK. Publish the draft manually.
 #
-# The workflow must be dispatched from `main` (the `release` environment only allows `main`), while
+# The workflow must be dispatched from `main` (the `android_release` environment only allows `main`), while
 # the `commit` input selects which commit on `main` is built. The tooling in `tools/release` is
 # always taken from the dispatch ref (not from the commit being built) so that older commits can be
 # released with the current release logic.
@@ -145,7 +145,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: release
+    environment: android_release
     permissions: {}
     outputs:
       apk-sha256: ${{ steps.checksum.outputs.apk-sha256 }}
@@ -187,7 +187,7 @@ jobs:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
         run: |
           if [[ -z "$RELEASE_KEYSTORE_BASE64" ]]; then
-            echo "::error::RELEASE_KEYSTORE_BASE64 secret is not set in the release environment"
+            echo "::error::RELEASE_KEYSTORE_BASE64 secret is not set in the android_release environment"
             exit 1
           fi
           umask 077
