@@ -1,0 +1,326 @@
+name: android-release
+
+# Builds a release APK of the Android app from a commit on `main`, signs it with the release signing
+# key, and creates a *draft* GitHub release containing the signed APK. Publish the draft manually.
+#
+# The workflow must be dispatched from `main` (the `android_release` environment only allows `main`), while
+# the `commit` input selects which commit on `main` is built. The tooling in `tools/release` is
+# always taken from the dispatch ref (not from the commit being built) so that older commits can be
+# released with the current release logic.
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Full 40-character SHA of the commit on main to build and release"
+        type: string
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  ANDROID_BUILD_TOOLS_VERSION: "37.0.0"
+  APP_PACKAGE_NAME: "prefix924.shhhhhh"
+  ASSET_PREFIX: "shhhhhh"
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      version-name: ${{ steps.apk_info.outputs.version-name }}
+      version-code: ${{ steps.apk_info.outputs.version-code }}
+      tag: ${{ steps.apk_info.outputs.tag }}
+      apk-name: ${{ steps.apk_info.outputs.apk-name }}
+    steps:
+      - name: verify dispatch ref is main
+        env:
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          if [[ "$DISPATCH_REF" != "refs/heads/main" ]]; then
+            echo "::error::This workflow must be dispatched from main, not $DISPATCH_REF"
+            exit 1
+          fi
+
+      - name: validate commit input
+        env:
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          if [[ ! "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::commit input must be a full 40-character lowercase hex SHA; got: $COMMIT"
+            exit 1
+          fi
+
+      - name: git checkout (source at commit)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
+        with:
+          show-progress: false
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+          path: src
+
+      - name: verify commit is on main
+        working-directory: src
+        env:
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          actual_head="$(git rev-parse HEAD)"
+          if [[ "$actual_head" != "$COMMIT" ]]; then
+            echo "::error::checked-out HEAD $actual_head does not match commit input $COMMIT"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$COMMIT" origin/main; then
+            echo "::error::commit $COMMIT is not reachable from origin/main"
+            exit 1
+          fi
+          echo "Commit $COMMIT is on main."
+
+      - name: git checkout (release tooling at dispatch ref)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
+        with:
+          show-progress: false
+          persist-credentials: false
+          sparse-checkout: "tools/release"
+          path: tooling
+
+      - name: set up jdk 21
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # ratchet:actions/setup-java@v6
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      - name: setup python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # ratchet:actions/setup-python@v7.1.0
+        with:
+          python-version: "3.15"
+
+      - name: install android build-tools
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "build-tools;$ANDROID_BUILD_TOOLS_VERSION"
+          echo "ANDROID_BUILD_TOOLS_DIR=$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS_VERSION" >> "$GITHUB_ENV"
+
+      - name: gradle assembleRelease
+        run: ./src/android/gradlew -p src/android --no-daemon assembleRelease
+
+      - name: read and validate apk version
+        id: apk_info
+        run: |
+          python3 tooling/tools/release/release_tool.py apk-info \
+            --aapt2 "$ANDROID_BUILD_TOOLS_DIR/aapt2" \
+            --apk src/android/app/build/outputs/apk/release/app-release-unsigned.apk \
+            --expected-package "$APP_PACKAGE_NAME" \
+            --asset-prefix "$ASSET_PREFIX"
+
+      - name: stage unsigned artifacts
+        env:
+          TAG: ${{ steps.apk_info.outputs.tag }}
+        run: |
+          mkdir dist
+          cp src/android/app/build/outputs/apk/release/app-release-unsigned.apk "dist/${ASSET_PREFIX}-${TAG}-unsigned.apk"
+          cp src/android/app/build/outputs/mapping/release/mapping.txt "dist/${ASSET_PREFIX}-${TAG}-mapping.txt"
+          ls -l dist
+
+      - name: upload unsigned artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # ratchet:actions/upload-artifact@v7
+        with:
+          name: unsigned
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
+
+  sign:
+    name: sign
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: android_release
+    permissions: {}
+    outputs:
+      apk-sha256: ${{ steps.checksum.outputs.apk-sha256 }}
+      cert-sha256: ${{ steps.cert.outputs.cert-sha256 }}
+    env:
+      TAG: ${{ needs.build.outputs.tag }}
+      APK_NAME: ${{ needs.build.outputs.apk-name }}
+    steps:
+      - name: git checkout (release tooling at dispatch ref)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
+        with:
+          show-progress: false
+          persist-credentials: false
+          sparse-checkout: "tools/release"
+          path: tooling
+
+      - name: setup python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # ratchet:actions/setup-python@v7.1.0
+        with:
+          python-version: "3.15"
+
+      - name: install android build-tools
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "build-tools;$ANDROID_BUILD_TOOLS_VERSION"
+          echo "ANDROID_BUILD_TOOLS_DIR=$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS_VERSION" >> "$GITHUB_ENV"
+
+      - name: download unsigned artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # ratchet:actions/download-artifact@v8.0.2
+        with:
+          name: unsigned
+          path: dist
+
+      - name: verify zip alignment
+        run: |
+          "$ANDROID_BUILD_TOOLS_DIR/zipalign" -c -P 16 4 "dist/${ASSET_PREFIX}-${TAG}-unsigned.apk"
+
+      - name: decode keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [[ -z "$RELEASE_KEYSTORE_BASE64" ]]; then
+            echo "::error::RELEASE_KEYSTORE_BASE64 secret is not set in the android_release environment"
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
+
+      - name: sign apk
+        env:
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          "$ANDROID_BUILD_TOOLS_DIR/apksigner" sign \
+            --ks "$RUNNER_TEMP/release.keystore" \
+            --ks-key-alias "$RELEASE_KEY_ALIAS" \
+            --ks-pass env:RELEASE_KEYSTORE_PASSWORD \
+            --key-pass env:RELEASE_KEY_PASSWORD \
+            --out "dist/$APK_NAME" \
+            "dist/${ASSET_PREFIX}-${TAG}-unsigned.apk"
+
+      - name: delete keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.keystore"
+
+      - name: verify signature and read certificate digest
+        id: cert
+        run: |
+          python3 tooling/tools/release/release_tool.py cert-digest \
+            --apksigner "$ANDROID_BUILD_TOOLS_DIR/apksigner" \
+            --apk "dist/$APK_NAME"
+
+      - name: compute sha-256 checksum
+        id: checksum
+        working-directory: dist
+        run: |
+          sha256sum "$APK_NAME" > "$APK_NAME.sha256"
+          cat "$APK_NAME.sha256"
+          echo "apk-sha256=$(cut -d' ' -f1 "$APK_NAME.sha256")" >> "$GITHUB_OUTPUT"
+          rm -f "${ASSET_PREFIX}-${TAG}-unsigned.apk"
+          ls -l
+
+      - name: upload signed artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # ratchet:actions/upload-artifact@v7
+        with:
+          name: signed
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
+
+  release:
+    name: release
+    needs: [build, sign]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      COMMIT: ${{ inputs.commit }}
+      VERSION_NAME: ${{ needs.build.outputs.version-name }}
+      VERSION_CODE: ${{ needs.build.outputs.version-code }}
+      TAG: ${{ needs.build.outputs.tag }}
+      APK_NAME: ${{ needs.build.outputs.apk-name }}
+      APK_SHA256: ${{ needs.sign.outputs.apk-sha256 }}
+      CERT_SHA256: ${{ needs.sign.outputs.cert-sha256 }}
+    steps:
+      - name: git checkout (release tooling at dispatch ref)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
+        with:
+          show-progress: false
+          persist-credentials: false
+          sparse-checkout: "tools/release"
+          path: tooling
+
+      - name: setup python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # ratchet:actions/setup-python@v7.1.0
+        with:
+          python-version: "3.15"
+
+      - name: install android build-tools
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "build-tools;$ANDROID_BUILD_TOOLS_VERSION"
+          echo "ANDROID_BUILD_TOOLS_DIR=$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS_VERSION" >> "$GITHUB_ENV"
+
+      - name: check version against existing releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 tooling/tools/release/release_tool.py check-version \
+            --aapt2 "$ANDROID_BUILD_TOOLS_DIR/aapt2" \
+            --version-name "$VERSION_NAME" \
+            --version-code "$VERSION_CODE" \
+            --asset-prefix "$ASSET_PREFIX"
+
+      - name: download signed artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # ratchet:actions/download-artifact@v8.0.2
+        with:
+          name: signed
+          path: dist
+
+      - name: verify checksum
+        working-directory: dist
+        run: sha256sum --check --strict "$APK_NAME.sha256"
+
+      - name: attest build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # ratchet:actions/attest@v4.2.2
+        with:
+          subject-path: dist/${{ needs.build.outputs.apk-name }}
+
+      - name: render release notes
+        run: |
+          python3 tooling/tools/release/release_tool.py release-notes \
+            --commit "$COMMIT" \
+            --version-name "$VERSION_NAME" \
+            --version-code "$VERSION_CODE" \
+            --apk-name "$APK_NAME" \
+            --apk-sha256 "$APK_SHA256" \
+            --cert-sha256 "$CERT_SHA256" \
+            --output "$RUNNER_TEMP/release-notes.md"
+
+      - name: create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft \
+            --target "$COMMIT" \
+            --title "${ASSET_PREFIX} ${TAG}" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --generate-notes \
+            "dist/$APK_NAME" \
+            "dist/$APK_NAME.sha256" \
+            "dist/${ASSET_PREFIX}-${TAG}-mapping.txt"
+          echo "### Draft release ${TAG} created" >> "$GITHUB_STEP_SUMMARY"
+          echo "Review and publish it at https://github.com/${GITHUB_REPOSITORY}/releases" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,55 @@
+[project]
+name = "release-tool"
+requires-python = ">= 3.15"
+
+[tool.pyright]
+include = ["**/*.py"]
+venvPath = "."
+venv = "venv"
+pythonVersion = "3.15"
+typeCheckingMode = "strict"
+
+[tool.ruff]
+line-length = 100
+indent-width = 2
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+  "BLE001",  # Do not catch blind exception: `Exception`
+  "C901",  # function is too complex
+  "COM812",  # missing-trailing-comma
+  "CPY001",  # Missing copyright notice at top of file
+  "D100",  # Missing docstring in public module
+  "D101",  # Missing docstring in public class
+  "D102",  # Missing docstring in public method
+  "D103",  # Missing docstring in public function
+  "D106",  # Missing docstring in public nested class
+  "D107",  # Missing docstring in `__init__`
+  "D203",  # incorrect-blank-line-before-class
+  "D211",  # no-blank-line-before-class
+  "D212",  # multi-line-summary-second-line
+  "E501",  # Line too long (will be fixed by the formatter)
+  "EM101",  # Exception must not use a string literal, assign to variable first
+  "LOG015",  # root-logger-call
+  "PERF401",  # Use `list.extend` to create a transformed list
+  "PLR0912",  # Too many branches
+  "PLR0915",  # Too many statements
+  "PT",  # flake8-pytest-style (project uses standard unittest)
+  "PTH123",  # `open()` should be replaced by `Path.open()`
+  "S310",  # Audit URL open for permitted schemes
+  "T201",  # `print` found
+  "TRY003",  # Avoid specifying long messages outside the exception class
+]
+
+[tool.ruff.lint.per-file-ignores]
+"test_*.py" = [
+  "N801",  # invalid-class-name
+  "S101",  # Use of `assert` detected
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+docstring-code-format = true
