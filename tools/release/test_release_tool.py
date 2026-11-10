@@ -2,13 +2,19 @@
 """Tests for release_tool.py."""
 
 import os
+import plistlib
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
+import release_tool
 from release_tool import (
+  IOS_DEVICE_PLATFORM,
+  IOS_SIMULATOR_PLATFORM,
   ApkInfo,
+  IosBundleInfo,
   Release,
   ReleaseAsset,
   ReleaseNotesInput,
@@ -16,15 +22,23 @@ from release_tool import (
   SemVer,
   apk_asset_name,
   check_new_version_against_releases,
+  check_platform_parity,
   check_version_code,
   find_apk_asset,
   find_highest_release,
+  find_optional_ios_asset,
   format_fingerprint,
   format_release_notes,
+  ios_dsym_zip_asset_name,
+  ios_ipa_asset_name,
+  ios_simulator_zip_asset_name,
   parse_args,
   parse_badging,
   parse_cert_digest,
+  parse_ios_info_plist,
   parse_tag,
+  read_ios_archive_info,
+  validate_ios_pair,
   write_github_outputs,
 )
 
@@ -130,6 +144,21 @@ class SemVerTest(unittest.TestCase):
 
   def test_apk_asset_name(self) -> None:
     self.assertEqual(apk_asset_name("shhhhhh", SemVer(0, 0, 1)), "shhhhhh-v0.0.1.apk")
+
+  def test_ios_asset_names(self) -> None:
+    version = SemVer(1, 0, 2)
+    self.assertEqual(
+      ios_simulator_zip_asset_name("shhhhhh", version),
+      "shhhhhh-v1.0.2-ios-simulator.app.zip",
+    )
+    self.assertEqual(
+      ios_ipa_asset_name("shhhhhh", version),
+      "shhhhhh-v1.0.2-ios-unsigned.ipa",
+    )
+    self.assertEqual(
+      ios_dsym_zip_asset_name("shhhhhh", version),
+      "shhhhhh-v1.0.2-ios-dSYMs.zip",
+    )
 
 
 class ParseBadgingTest(unittest.TestCase):
@@ -293,14 +322,326 @@ class FormatReleaseNotesTest(unittest.TestCase):
         apk_name="shhhhhh-v0.0.1.apk",
         apk_sha256="12" * 32,
         cert_sha256="ab" * 32,
+        ios_simulator_zip_name="shhhhhh-v0.0.1-ios-simulator.app.zip",
+        ios_simulator_zip_sha256="34" * 32,
+        ios_ipa_name="shhhhhh-v0.0.1-ios-unsigned.ipa",
+        ios_ipa_sha256="56" * 32,
       )
     )
     self.assertIn(f"https://github.com/denversc/shhhhhh/commit/{commit}", body)
     self.assertIn("`0123456789ab`", body)
-    self.assertIn("versionCode 1", body)
+    self.assertIn("versionCode / CFBundleVersion 1", body)
     self.assertIn("12" * 32, body)
     self.assertIn(":".join(["AB"] * 32), body)
+    self.assertIn("34" * 32, body)
+    self.assertIn("56" * 32, body)
     self.assertIn("gh attestation verify shhhhhh-v0.0.1.apk --repo denversc/shhhhhh", body)
+    self.assertIn(
+      "gh attestation verify shhhhhh-v0.0.1-ios-simulator.app.zip --repo denversc/shhhhhh",
+      body,
+    )
+    self.assertIn(
+      "gh attestation verify shhhhhh-v0.0.1-ios-unsigned.ipa --repo denversc/shhhhhh",
+      body,
+    )
+
+
+def make_plist_bytes(
+  *,
+  bundle_id: str = "prefix924.shhhhhh",
+  version_name: str = "1.0.2",
+  version_code: str = "1000002",
+  platform_name: str = IOS_SIMULATOR_PLATFORM,
+  fmt: plistlib.PlistFormat = plistlib.FMT_BINARY,
+) -> bytes:
+  return plistlib.dumps(
+    {
+      "CFBundleIdentifier": bundle_id,
+      "CFBundleShortVersionString": version_name,
+      "CFBundleVersion": version_code,
+      "DTPlatformName": platform_name,
+    },
+    fmt=fmt,
+  )
+
+
+def write_ios_archive(
+  path: Path,
+  *,
+  entry_path: str,
+  plist_bytes: bytes,
+  extra_entries: dict[str, bytes] | None = None,
+) -> Path:
+  with zipfile.ZipFile(path, "w") as zf:
+    zf.writestr(entry_path, plist_bytes)
+    if extra_entries:
+      for name, data in extra_entries.items():
+        zf.writestr(name, data)
+  return path
+
+
+class IosBundleInspectionTest(unittest.TestCase):
+  def test_parse_binary_and_xml_plist(self) -> None:
+    for fmt in (plistlib.FMT_BINARY, plistlib.FMT_XML):
+      with self.subTest(fmt=fmt):
+        info = parse_ios_info_plist(make_plist_bytes(fmt=fmt))
+        self.assertEqual(
+          info,
+          IosBundleInfo(
+            bundle_id="prefix924.shhhhhh",
+            version_code=1000002,
+            version_name="1.0.2",
+            platform_name=IOS_SIMULATOR_PLATFORM,
+          ),
+        )
+
+  def test_parse_rejects_missing_key(self) -> None:
+    data = plistlib.dumps({"CFBundleIdentifier": "prefix924.shhhhhh"})
+    with self.assertRaisesRegex(ReleaseToolError, "missing key"):
+      parse_ios_info_plist(data)
+
+  def test_parse_rejects_invalid_cf_bundle_version(self) -> None:
+    with self.assertRaisesRegex(ReleaseToolError, "CFBundleVersion"):
+      parse_ios_info_plist(make_plist_bytes(version_code="0"))
+
+  def test_read_simulator_and_ipa_ignores_embedded_frameworks(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      root = Path(tmp_dir)
+      sim_zip = write_ios_archive(
+        root / "sim.app.zip",
+        entry_path="shhhhhh.app/Info.plist",
+        plist_bytes=make_plist_bytes(platform_name=IOS_SIMULATOR_PLATFORM),
+        extra_entries={
+          "shhhhhh.app/Frameworks/ShhhhhhCore.framework/Info.plist": make_plist_bytes(
+            bundle_id="org.example.ShhhhhhCore",
+            version_name="9.9.9",
+            version_code="999",
+            platform_name=IOS_SIMULATOR_PLATFORM,
+          )
+        },
+      )
+      ipa = write_ios_archive(
+        root / "app.ipa",
+        entry_path="Payload/shhhhhh.app/Info.plist",
+        plist_bytes=make_plist_bytes(platform_name=IOS_DEVICE_PLATFORM),
+        extra_entries={
+          "Payload/shhhhhh.app/Frameworks/ShhhhhhCore.framework/Info.plist": make_plist_bytes(
+            bundle_id="org.example.ShhhhhhCore",
+            version_name="9.9.9",
+            version_code="999",
+            platform_name=IOS_DEVICE_PLATFORM,
+          )
+        },
+      )
+      sim_info = read_ios_archive_info(sim_zip, expected_platform=IOS_SIMULATOR_PLATFORM)
+      ipa_info = read_ios_archive_info(ipa, expected_platform=IOS_DEVICE_PLATFORM)
+      self.assertEqual(sim_info.platform_name, IOS_SIMULATOR_PLATFORM)
+      self.assertEqual(ipa_info.platform_name, IOS_DEVICE_PLATFORM)
+      self.assertEqual(validate_ios_pair(sim_info, ipa_info, "prefix924.shhhhhh"), SemVer(1, 0, 2))
+
+  def test_read_rejects_wrong_platform(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      ipa = write_ios_archive(
+        Path(tmp_dir) / "wrong.ipa",
+        entry_path="Payload/shhhhhh.app/Info.plist",
+        plist_bytes=make_plist_bytes(platform_name=IOS_SIMULATOR_PLATFORM),
+      )
+      with self.assertRaisesRegex(ReleaseToolError, "DTPlatformName"):
+        read_ios_archive_info(ipa, expected_platform=IOS_DEVICE_PLATFORM)
+
+  def test_validate_ios_pair_rejects_dev_suffix(self) -> None:
+    sim = IosBundleInfo("prefix924.shhhhhh", 1000002, "1.0.2-dev", IOS_SIMULATOR_PLATFORM)
+    ipa = IosBundleInfo("prefix924.shhhhhh", 1000002, "1.0.2-dev", IOS_DEVICE_PLATFORM)
+    with self.assertRaisesRegex(ReleaseToolError, "plain MAJOR.MINOR.PATCH"):
+      validate_ios_pair(sim, ipa, "prefix924.shhhhhh")
+
+  def test_validate_ios_pair_rejects_mismatched_builds(self) -> None:
+    sim = IosBundleInfo("prefix924.shhhhhh", 1000002, "1.0.2", IOS_SIMULATOR_PLATFORM)
+    ipa = IosBundleInfo("prefix924.shhhhhh", 1000003, "1.0.2", IOS_DEVICE_PLATFORM)
+    with self.assertRaisesRegex(ReleaseToolError, "CFBundleVersion"):
+      validate_ios_pair(sim, ipa, "prefix924.shhhhhh")
+
+
+class PlatformParityAndAssetsTest(unittest.TestCase):
+  def test_parity_ok(self) -> None:
+    check_platform_parity(
+      android_version=SemVer(1, 0, 2),
+      android_version_code=1000002,
+      ios_version=SemVer(1, 0, 2),
+      ios_version_code=1000002,
+    )
+
+  def test_parity_version_mismatch(self) -> None:
+    with self.assertRaisesRegex(ReleaseToolError, "does not match Android versionName"):
+      check_platform_parity(
+        android_version=SemVer(1, 0, 2),
+        android_version_code=1000002,
+        ios_version=SemVer(1, 0, 1),
+        ios_version_code=1000002,
+      )
+
+  def test_parity_code_mismatch(self) -> None:
+    with self.assertRaisesRegex(ReleaseToolError, "does not match Android versionCode"):
+      check_platform_parity(
+        android_version=SemVer(1, 0, 2),
+        android_version_code=1000002,
+        ios_version=SemVer(1, 0, 2),
+        ios_version_code=1,
+      )
+
+  def test_find_optional_ios_asset(self) -> None:
+    android_only = release("v1.0.1", assets=("shhhhhh-v1.0.1.apk",))
+    self.assertIsNone(find_optional_ios_asset(android_only, "shhhhhh", SemVer(1, 0, 1)))
+
+    unified = release(
+      "v1.0.2",
+      assets=("shhhhhh-v1.0.2.apk", "shhhhhh-v1.0.2-ios-unsigned.ipa"),
+    )
+    found = find_optional_ios_asset(unified, "shhhhhh", SemVer(1, 0, 2))
+    assert found is not None
+    self.assertEqual(found[0].name, "shhhhhh-v1.0.2-ios-unsigned.ipa")
+    self.assertEqual(found[1], IOS_DEVICE_PLATFORM)
+
+
+class CmdCheckVersionAndIosInfoTest(unittest.TestCase):
+  def test_cmd_ios_info_writes_outputs(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      root = Path(tmp_dir)
+      output_file = root / "outputs"
+      sim_zip = write_ios_archive(
+        root / "sim.app.zip",
+        entry_path="shhhhhh.app/Info.plist",
+        plist_bytes=make_plist_bytes(platform_name=IOS_SIMULATOR_PLATFORM),
+      )
+      ipa = write_ios_archive(
+        root / "app.ipa",
+        entry_path="Payload/shhhhhh.app/Info.plist",
+        plist_bytes=make_plist_bytes(platform_name=IOS_DEVICE_PLATFORM),
+      )
+      args = parse_args(
+        [
+          "ios-info",
+          "--simulator-zip",
+          str(sim_zip),
+          "--ipa",
+          str(ipa),
+          "--expected-bundle-id",
+          "prefix924.shhhhhh",
+          "--asset-prefix",
+          "shhhhhh",
+        ]
+      )
+      with (
+        mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output_file)}),
+        mock.patch("builtins.print"),
+        mock.patch("sys.stderr"),
+      ):
+        args.func(args)
+
+      outputs = output_file.read_text(encoding="utf-8")
+      self.assertIn("version-name=1.0.2\n", outputs)
+      self.assertIn("version-code=1000002\n", outputs)
+      self.assertIn("tag=v1.0.2\n", outputs)
+      self.assertIn("simulator-zip-name=shhhhhh-v1.0.2-ios-simulator.app.zip\n", outputs)
+      self.assertIn("ipa-name=shhhhhh-v1.0.2-ios-unsigned.ipa\n", outputs)
+      self.assertIn("dsym-zip-name=shhhhhh-v1.0.2-ios-dSYMs.zip\n", outputs)
+
+  def test_cmd_check_version_allows_android_only_previous_release(self) -> None:
+    prev = release("v1.0.1", assets=("shhhhhh-v1.0.1.apk",))
+    fake_client = mock.MagicMock()
+    fake_client.tag_exists.return_value = False
+    fake_client.list_releases.return_value = [prev]
+
+    def fake_download(_asset: ReleaseAsset, dest: Path) -> None:
+      dest.write_bytes(b"apk")
+
+    fake_client.download_asset.side_effect = fake_download
+
+    with (
+      mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "tok"}, clear=True),
+      mock.patch.object(release_tool, "GitHubClient", return_value=fake_client),
+      mock.patch.object(
+        release_tool,
+        "read_apk_info",
+        return_value=ApkInfo("prefix924.shhhhhh", 1000001, "1.0.1"),
+      ),
+      mock.patch("sys.stderr"),
+    ):
+      args = parse_args(
+        [
+          "check-version",
+          "--aapt2",
+          "/x/aapt2",
+          "--version-name",
+          "1.0.2",
+          "--version-code",
+          "1000002",
+          "--ios-version-name",
+          "1.0.2",
+          "--ios-version-code",
+          "1000002",
+          "--asset-prefix",
+          "shhhhhh",
+        ]
+      )
+      args.func(args)
+
+    fake_client.download_asset.assert_called_once()
+
+  def test_cmd_check_version_checks_previous_ios_build_when_present(self) -> None:
+    prev = release(
+      "v1.0.2",
+      assets=("shhhhhh-v1.0.2.apk", "shhhhhh-v1.0.2-ios-unsigned.ipa"),
+    )
+    fake_client = mock.MagicMock()
+    fake_client.tag_exists.return_value = False
+    fake_client.list_releases.return_value = [prev]
+
+    def fake_download(asset: ReleaseAsset, dest: Path) -> None:
+      if asset.name.endswith(".ipa"):
+        write_ios_archive(
+          dest,
+          entry_path="Payload/shhhhhh.app/Info.plist",
+          plist_bytes=make_plist_bytes(
+            version_name="1.0.2",
+            version_code="1000003",
+            platform_name=IOS_DEVICE_PLATFORM,
+          ),
+        )
+      else:
+        dest.write_bytes(b"apk")
+
+    fake_client.download_asset.side_effect = fake_download
+
+    with (
+      mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "tok"}, clear=True),
+      mock.patch.object(release_tool, "GitHubClient", return_value=fake_client),
+      mock.patch.object(
+        release_tool,
+        "read_apk_info",
+        return_value=ApkInfo("prefix924.shhhhhh", 1000002, "1.0.2"),
+      ),
+      mock.patch("sys.stderr"),
+      self.assertRaisesRegex(ReleaseToolError, "CFBundleVersion 1000003"),
+    ):
+      args = parse_args(
+        [
+          "check-version",
+          "--aapt2",
+          "/x/aapt2",
+          "--version-name",
+          "1.0.3",
+          "--version-code",
+          "1000003",
+          "--ios-version-name",
+          "1.0.3",
+          "--ios-version-code",
+          "1000003",
+          "--asset-prefix",
+          "shhhhhh",
+        ]
+      )
+      args.func(args)
 
 
 class WriteGithubOutputsTest(unittest.TestCase):
@@ -331,6 +672,10 @@ class ParseArgsTest(unittest.TestCase):
           "1.2.3",
           "--version-code",
           "7",
+          "--ios-version-name",
+          "1.2.3",
+          "--ios-version-code",
+          "7",
           "--asset-prefix",
           "shhhhhh",
         ]
@@ -338,6 +683,7 @@ class ParseArgsTest(unittest.TestCase):
     self.assertEqual(args.repo, "o/r")
     self.assertEqual(args.token, "t")
     self.assertEqual(args.version_code, 7)
+    self.assertEqual(args.ios_version_code, 7)
     self.assertEqual(args.aapt2, Path("/x/aapt2"))
 
   def test_check_version_requires_token(self) -> None:
@@ -355,10 +701,32 @@ class ParseArgsTest(unittest.TestCase):
           "1.2.3",
           "--version-code",
           "1",
+          "--ios-version-name",
+          "1.2.3",
+          "--ios-version-code",
+          "1",
           "--asset-prefix",
           "p",
         ]
       )
+
+  def test_ios_info_args(self) -> None:
+    args = parse_args(
+      [
+        "ios-info",
+        "--simulator-zip",
+        "/x/sim.app.zip",
+        "--ipa",
+        "/x/app.ipa",
+        "--expected-bundle-id",
+        "prefix924.shhhhhh",
+        "--asset-prefix",
+        "shhhhhh",
+      ]
+    )
+    self.assertEqual(args.simulator_zip, Path("/x/sim.app.zip"))
+    self.assertEqual(args.ipa, Path("/x/app.ipa"))
+    self.assertEqual(args.expected_bundle_id, "prefix924.shhhhhh")
 
 
 if __name__ == "__main__":
