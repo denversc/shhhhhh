@@ -1,12 +1,15 @@
-name: android-release
+name: release
 
-# Builds a release APK of the Android app from a commit on `main`, signs it with the release signing
-# key, and creates a *draft* GitHub release containing the signed APK. Publish the draft manually.
+# Builds unified Android + iOS releases from a commit on `main`, signs the Android APK with the
+# release signing key, packages an iOS Simulator `.app.zip` + unsigned `.ipa` + dSYMs archive,
+# verifies version parity and monotonic progression against existing releases, attests build
+# provenance, and creates a *draft* GitHub release containing all assets. Publish the draft
+# manually.
 #
-# The workflow must be dispatched from `main` (the `android_release` environment only allows `main`), while
-# the `commit` input selects which commit on `main` is built. The tooling in `tools/release` is
-# always taken from the dispatch ref (not from the commit being built) so that older commits can be
-# released with the current release logic.
+# The workflow must be dispatched from `main` (the `android_release` environment only allows `main`),
+# while the `commit` input selects which commit on `main` is built. The tooling in `tools/release`
+# is always taken from the dispatch ref (not from the commit being built) so that older commits
+# can be released with the current release logic.
 
 on:
   workflow_dispatch:
@@ -28,12 +31,12 @@ defaults:
 
 env:
   ANDROID_BUILD_TOOLS_VERSION: "37.0.0"
-  APP_PACKAGE_NAME: "prefix924.shhhhhh"
+  APP_BUNDLE_ID: "prefix924.shhhhhh"
   ASSET_PREFIX: "shhhhhh"
 
 jobs:
-  build:
-    name: build
+  android-build:
+    name: android-build
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -120,7 +123,7 @@ jobs:
           python3 tooling/tools/release/release_tool.py apk-info \
             --aapt2 "$ANDROID_BUILD_TOOLS_DIR/aapt2" \
             --apk src/android/app/build/outputs/apk/release/app-release-unsigned.apk \
-            --expected-package "$APP_PACKAGE_NAME" \
+            --expected-package "$APP_BUNDLE_ID" \
             --asset-prefix "$ASSET_PREFIX"
 
       - name: stage unsigned artifacts
@@ -135,14 +138,14 @@ jobs:
       - name: upload unsigned artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # ratchet:actions/upload-artifact@v7
         with:
-          name: unsigned
+          name: android-unsigned
           path: dist/
           retention-days: 7
           if-no-files-found: error
 
-  sign:
-    name: sign
-    needs: build
+  android-sign:
+    name: android-sign
+    needs: android-build
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: android_release
@@ -151,8 +154,8 @@ jobs:
       apk-sha256: ${{ steps.checksum.outputs.apk-sha256 }}
       cert-sha256: ${{ steps.cert.outputs.cert-sha256 }}
     env:
-      TAG: ${{ needs.build.outputs.tag }}
-      APK_NAME: ${{ needs.build.outputs.apk-name }}
+      TAG: ${{ needs.android-build.outputs.tag }}
+      APK_NAME: ${{ needs.android-build.outputs.apk-name }}
     steps:
       - name: git checkout (release tooling at dispatch ref)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
@@ -175,7 +178,7 @@ jobs:
       - name: download unsigned artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # ratchet:actions/download-artifact@v8.0.2
         with:
-          name: unsigned
+          name: android-unsigned
           path: dist
 
       - name: verify zip alignment
@@ -231,14 +234,169 @@ jobs:
       - name: upload signed artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # ratchet:actions/upload-artifact@v7
         with:
-          name: signed
+          name: android-signed
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
+
+  ios-build:
+    name: ios-build
+    runs-on: xcode-27
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      version-name: ${{ steps.ios_info.outputs.version-name }}
+      version-code: ${{ steps.ios_info.outputs.version-code }}
+      tag: ${{ steps.ios_info.outputs.tag }}
+      simulator-zip-name: ${{ steps.ios_info.outputs.simulator-zip-name }}
+      ipa-name: ${{ steps.ios_info.outputs.ipa-name }}
+      dsym-zip-name: ${{ steps.ios_info.outputs.dsym-zip-name }}
+      simulator-zip-sha256: ${{ steps.checksums.outputs.simulator-zip-sha256 }}
+      ipa-sha256: ${{ steps.checksums.outputs.ipa-sha256 }}
+    steps:
+      - name: verify dispatch ref is main
+        env:
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          if [[ "$DISPATCH_REF" != "refs/heads/main" ]]; then
+            echo "::error::This workflow must be dispatched from main, not $DISPATCH_REF"
+            exit 1
+          fi
+
+      - name: validate commit input
+        env:
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          if [[ ! "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::commit input must be a full 40-character lowercase hex SHA; got: $COMMIT"
+            exit 1
+          fi
+
+      - name: git checkout (source at commit)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
+        with:
+          show-progress: false
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+          path: src
+
+      - name: verify commit is on main
+        working-directory: src
+        env:
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          actual_head="$(git rev-parse HEAD)"
+          if [[ "$actual_head" != "$COMMIT" ]]; then
+            echo "::error::checked-out HEAD $actual_head does not match commit input $COMMIT"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$COMMIT" origin/main; then
+            echo "::error::commit $COMMIT is not reachable from origin/main"
+            exit 1
+          fi
+          echo "Commit $COMMIT is on main."
+
+      - name: git checkout (release tooling at dispatch ref)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
+        with:
+          show-progress: false
+          persist-credentials: false
+          sparse-checkout: "tools/release"
+          path: tooling
+
+      - name: select Xcode
+        run: sudo xcode-select --switch /Applications/Xcode_27.app
+
+      - name: setup python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # ratchet:actions/setup-python@v7.1.0
+        with:
+          python-version: "3.15"
+
+      - name: build iOS simulator app
+        run: |
+          xcodebuild \
+            -project src/ios/shhhhhh/shhhhhh.xcodeproj \
+            -scheme shhhhhh \
+            -configuration Release \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath "$RUNNER_TEMP/ios-sim-derived" \
+            build
+          sim_app="$RUNNER_TEMP/ios-sim-derived/Build/Products/Release-iphonesimulator/shhhhhh.app"
+          if [[ ! -d "$sim_app" ]]; then
+            echo "::error::Simulator app bundle not found at $sim_app"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/ios-stage"
+          ditto -c -k --norsrc --keepParent "$sim_app" "$RUNNER_TEMP/ios-stage/simulator.app.zip"
+
+      - name: archive unsigned iOS device app
+        run: |
+          xcodebuild \
+            -project src/ios/shhhhhh/shhhhhh.xcodeproj \
+            -scheme shhhhhh \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/shhhhhh.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            archive
+          dev_app="$RUNNER_TEMP/shhhhhh.xcarchive/Products/Applications/shhhhhh.app"
+          dsyms_dir="$RUNNER_TEMP/shhhhhh.xcarchive/dSYMs"
+          if [[ ! -d "$dev_app" ]]; then
+            echo "::error::Archived app bundle not found at $dev_app"
+            exit 1
+          fi
+          if [[ ! -d "$dsyms_dir" ]]; then
+            echo "::error::Archived dSYMs directory not found at $dsyms_dir"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/ipa-payload/Payload"
+          ditto "$dev_app" "$RUNNER_TEMP/ipa-payload/Payload/shhhhhh.app"
+          ditto -c -k --norsrc "$RUNNER_TEMP/ipa-payload" "$RUNNER_TEMP/ios-stage/unsigned.ipa"
+          ditto -c -k --norsrc "$dsyms_dir" "$RUNNER_TEMP/ios-stage/dSYMs.zip"
+
+      - name: read and validate ios bundle info
+        id: ios_info
+        run: |
+          python3 tooling/tools/release/release_tool.py ios-info \
+            --simulator-zip "$RUNNER_TEMP/ios-stage/simulator.app.zip" \
+            --ipa "$RUNNER_TEMP/ios-stage/unsigned.ipa" \
+            --expected-bundle-id "$APP_BUNDLE_ID" \
+            --asset-prefix "$ASSET_PREFIX"
+
+      - name: stage ios artifacts and checksums
+        id: checksums
+        env:
+          SIM_ZIP_NAME: ${{ steps.ios_info.outputs.simulator-zip-name }}
+          IPA_NAME: ${{ steps.ios_info.outputs.ipa-name }}
+          DSYM_ZIP_NAME: ${{ steps.ios_info.outputs.dsym-zip-name }}
+        run: |
+          mkdir -p dist
+          mv "$RUNNER_TEMP/ios-stage/simulator.app.zip" "dist/$SIM_ZIP_NAME"
+          mv "$RUNNER_TEMP/ios-stage/unsigned.ipa" "dist/$IPA_NAME"
+          mv "$RUNNER_TEMP/ios-stage/dSYMs.zip" "dist/$DSYM_ZIP_NAME"
+          cd dist
+          shasum -a 256 "$SIM_ZIP_NAME" > "$SIM_ZIP_NAME.sha256"
+          shasum -a 256 "$IPA_NAME" > "$IPA_NAME.sha256"
+          cat "$SIM_ZIP_NAME.sha256" "$IPA_NAME.sha256"
+          echo "simulator-zip-sha256=$(cut -d' ' -f1 "$SIM_ZIP_NAME.sha256")" >> "$GITHUB_OUTPUT"
+          echo "ipa-sha256=$(cut -d' ' -f1 "$IPA_NAME.sha256")" >> "$GITHUB_OUTPUT"
+          ls -l
+
+      - name: upload ios artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # ratchet:actions/upload-artifact@v7
+        with:
+          name: ios
           path: dist/
           retention-days: 7
           if-no-files-found: error
 
   release:
     name: release
-    needs: [build, sign]
+    needs: [android-build, android-sign, ios-build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -247,12 +405,19 @@ jobs:
       attestations: write
     env:
       COMMIT: ${{ inputs.commit }}
-      VERSION_NAME: ${{ needs.build.outputs.version-name }}
-      VERSION_CODE: ${{ needs.build.outputs.version-code }}
-      TAG: ${{ needs.build.outputs.tag }}
-      APK_NAME: ${{ needs.build.outputs.apk-name }}
-      APK_SHA256: ${{ needs.sign.outputs.apk-sha256 }}
-      CERT_SHA256: ${{ needs.sign.outputs.cert-sha256 }}
+      VERSION_NAME: ${{ needs.android-build.outputs.version-name }}
+      VERSION_CODE: ${{ needs.android-build.outputs.version-code }}
+      IOS_VERSION_NAME: ${{ needs.ios-build.outputs.version-name }}
+      IOS_VERSION_CODE: ${{ needs.ios-build.outputs.version-code }}
+      TAG: ${{ needs.android-build.outputs.tag }}
+      APK_NAME: ${{ needs.android-build.outputs.apk-name }}
+      APK_SHA256: ${{ needs.android-sign.outputs.apk-sha256 }}
+      CERT_SHA256: ${{ needs.android-sign.outputs.cert-sha256 }}
+      SIM_ZIP_NAME: ${{ needs.ios-build.outputs.simulator-zip-name }}
+      SIM_ZIP_SHA256: ${{ needs.ios-build.outputs.simulator-zip-sha256 }}
+      IPA_NAME: ${{ needs.ios-build.outputs.ipa-name }}
+      IPA_SHA256: ${{ needs.ios-build.outputs.ipa-sha256 }}
+      DSYM_ZIP_NAME: ${{ needs.ios-build.outputs.dsym-zip-name }}
     steps:
       - name: git checkout (release tooling at dispatch ref)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
@@ -272,7 +437,7 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "build-tools;$ANDROID_BUILD_TOOLS_VERSION"
           echo "ANDROID_BUILD_TOOLS_DIR=$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS_VERSION" >> "$GITHUB_ENV"
 
-      - name: check version against existing releases
+      - name: check version parity and existing releases
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -280,22 +445,43 @@ jobs:
             --aapt2 "$ANDROID_BUILD_TOOLS_DIR/aapt2" \
             --version-name "$VERSION_NAME" \
             --version-code "$VERSION_CODE" \
+            --ios-version-name "$IOS_VERSION_NAME" \
+            --ios-version-code "$IOS_VERSION_CODE" \
             --asset-prefix "$ASSET_PREFIX"
 
-      - name: download signed artifacts
+      - name: download signed android artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # ratchet:actions/download-artifact@v8.0.2
         with:
-          name: signed
+          name: android-signed
           path: dist
 
-      - name: verify checksum
-        working-directory: dist
-        run: sha256sum --check --strict "$APK_NAME.sha256"
+      - name: download ios artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # ratchet:actions/download-artifact@v8.0.2
+        with:
+          name: ios
+          path: dist
 
-      - name: attest build provenance
+      - name: verify checksums
+        working-directory: dist
+        run: |
+          sha256sum --check --strict "$APK_NAME.sha256"
+          sha256sum --check --strict "$SIM_ZIP_NAME.sha256"
+          sha256sum --check --strict "$IPA_NAME.sha256"
+
+      - name: attest android apk provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # ratchet:actions/attest@v4.2.2
         with:
-          subject-path: dist/${{ needs.build.outputs.apk-name }}
+          subject-path: dist/${{ needs.android-build.outputs.apk-name }}
+
+      - name: attest ios simulator zip provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # ratchet:actions/attest@v4.2.2
+        with:
+          subject-path: dist/${{ needs.ios-build.outputs.simulator-zip-name }}
+
+      - name: attest ios unsigned ipa provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # ratchet:actions/attest@v4.2.2
+        with:
+          subject-path: dist/${{ needs.ios-build.outputs.ipa-name }}
 
       - name: render release notes
         run: |
@@ -306,6 +492,10 @@ jobs:
             --apk-name "$APK_NAME" \
             --apk-sha256 "$APK_SHA256" \
             --cert-sha256 "$CERT_SHA256" \
+            --ios-simulator-zip-name "$SIM_ZIP_NAME" \
+            --ios-simulator-zip-sha256 "$SIM_ZIP_SHA256" \
+            --ios-ipa-name "$IPA_NAME" \
+            --ios-ipa-sha256 "$IPA_SHA256" \
             --output "$RUNNER_TEMP/release-notes.md"
 
       - name: create draft release
@@ -321,6 +511,11 @@ jobs:
             --generate-notes \
             "dist/$APK_NAME" \
             "dist/$APK_NAME.sha256" \
-            "dist/${ASSET_PREFIX}-${TAG}-mapping.txt"
+            "dist/${ASSET_PREFIX}-${TAG}-mapping.txt" \
+            "dist/$SIM_ZIP_NAME" \
+            "dist/$SIM_ZIP_NAME.sha256" \
+            "dist/$IPA_NAME" \
+            "dist/$IPA_NAME.sha256" \
+            "dist/$DSYM_ZIP_NAME"
           echo "### Draft release ${TAG} created" >> "$GITHUB_STEP_SUMMARY"
           echo "Review and publish it at https://github.com/${GITHUB_REPOSITORY}/releases" >> "$GITHUB_STEP_SUMMARY"

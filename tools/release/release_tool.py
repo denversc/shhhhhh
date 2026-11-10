@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-release_tool.py - Helpers for the android-release GitHub Actions workflow.
+release_tool.py - Helpers for the unified release GitHub Actions workflow.
 
 Subcommands:
   apk-info       Read the package name, versionCode, and versionName of an APK using `aapt2`,
                  validate them, and emit them as GitHub Actions step outputs.
   cert-digest    Verify an APK's signature using `apksigner` and emit the SHA-256 digest of its
                  (sole) signing certificate as a GitHub Actions step output.
-  check-version  Verify that a new version does not collide with an existing tag or release and
-                 is strictly greater (both versionName and versionCode) than the highest existing
-                 GitHub release, including drafts.
-  release-notes  Render the Markdown body for the GitHub release.
+  ios-info       Read and validate the Info.plist inside an iOS simulator `.app.zip` and unsigned
+                 `.ipa`, verify they match, and emit them as GitHub Actions step outputs.
+  check-version  Verify Android and iOS versions match, do not collide with an existing tag or
+                 release, and strictly advance over the highest existing GitHub release (including
+                 drafts).
+  release-notes  Render the unified Markdown body for the GitHub release.
 
 This script intentionally depends only on the Python standard library so that the release workflow
 does not need to install any third-party packages.
@@ -21,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import plistlib
 import re
 import subprocess
 import sys
@@ -28,6 +31,7 @@ import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, cast, override
@@ -37,6 +41,8 @@ if TYPE_CHECKING:
 
 GITHUB_API_URL = "https://api.github.com"
 USER_AGENT = "shhhhhh-release-tool"
+IOS_SIMULATOR_PLATFORM = "iphonesimulator"
+IOS_DEVICE_PLATFORM = "iphoneos"
 
 
 class ReleaseToolError(Exception):
@@ -87,6 +93,18 @@ def parse_tag(tag: str) -> SemVer | None:
 
 def apk_asset_name(asset_prefix: str, version: SemVer) -> str:
   return f"{asset_prefix}-{version.tag}.apk"
+
+
+def ios_simulator_zip_asset_name(asset_prefix: str, version: SemVer) -> str:
+  return f"{asset_prefix}-{version.tag}-ios-simulator.app.zip"
+
+
+def ios_ipa_asset_name(asset_prefix: str, version: SemVer) -> str:
+  return f"{asset_prefix}-{version.tag}-ios-unsigned.ipa"
+
+
+def ios_dsym_zip_asset_name(asset_prefix: str, version: SemVer) -> str:
+  return f"{asset_prefix}-{version.tag}-ios-dSYMs.zip"
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -196,6 +214,146 @@ def format_fingerprint(hex_digest: str) -> str:
   """Format a hex digest as colon-separated uppercase byte pairs (`AB:CD:...`)."""
   upper = hex_digest.upper()
   return ":".join(upper[i : i + 2] for i in range(0, len(upper), 2))
+
+
+# ---------------------------------------------------------------------------------------------------
+# iOS bundle inspection (zipfile / plistlib)
+# ---------------------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class IosBundleInfo:
+  bundle_id: str
+  version_code: int
+  version_name: str
+  platform_name: str
+
+
+_SIMULATOR_INFO_PLIST_RE = re.compile(r"^[^/]+\.app/Info\.plist$")
+_IPA_INFO_PLIST_RE = re.compile(r"^Payload/[^/]+\.app/Info\.plist$")
+
+
+def parse_ios_info_plist(data: bytes) -> IosBundleInfo:
+  """Parse an iOS `Info.plist` (XML or binary) into `IosBundleInfo`."""
+  try:
+    raw = plistlib.loads(data)
+  except Exception as err:
+    msg = f"failed to parse Info.plist: {err}"
+    raise ReleaseToolError(msg) from err
+
+  if not isinstance(raw, dict):
+    raise ReleaseToolError("Info.plist root object must be a dictionary")
+
+  plist = cast("dict[str, Any]", raw)
+  required_keys = (
+    "CFBundleIdentifier",
+    "CFBundleShortVersionString",
+    "CFBundleVersion",
+    "DTPlatformName",
+  )
+  missing = [key for key in required_keys if key not in plist]
+  if missing:
+    msg = f"Info.plist is missing key(s): {', '.join(missing)}"
+    raise ReleaseToolError(msg)
+
+  bundle_id = plist["CFBundleIdentifier"]
+  version_name = plist["CFBundleShortVersionString"]
+  version_code_raw = plist["CFBundleVersion"]
+  platform_name = plist["DTPlatformName"]
+
+  for key, value in (
+    ("CFBundleIdentifier", bundle_id),
+    ("CFBundleShortVersionString", version_name),
+    ("CFBundleVersion", version_code_raw),
+    ("DTPlatformName", platform_name),
+  ):
+    if not isinstance(value, str) or not value:
+      msg = f"Info.plist key {key} must be a non-empty string, got: {value!r}"
+      raise ReleaseToolError(msg)
+
+  if not re.fullmatch(r"[1-9][0-9]*", version_code_raw):
+    msg = f"invalid CFBundleVersion in Info.plist: {version_code_raw!r}"
+    raise ReleaseToolError(msg)
+
+  return IosBundleInfo(
+    bundle_id=bundle_id,
+    version_code=int(version_code_raw),
+    version_name=version_name,
+    platform_name=platform_name,
+  )
+
+
+def read_ios_archive_info(archive_path: Path, *, expected_platform: str) -> IosBundleInfo:
+  """Read and validate the app `Info.plist` inside a simulator `.app.zip` or `.ipa`."""
+  if expected_platform == IOS_SIMULATOR_PLATFORM:
+    pattern = _SIMULATOR_INFO_PLIST_RE
+    archive_desc = "simulator .app.zip"
+  elif expected_platform == IOS_DEVICE_PLATFORM:
+    pattern = _IPA_INFO_PLIST_RE
+    archive_desc = ".ipa"
+  else:
+    msg = f"unsupported expected iOS platform: {expected_platform!r}"
+    raise ReleaseToolError(msg)
+
+  try:
+    with zipfile.ZipFile(archive_path) as zf:
+      matches = [name for name in zf.namelist() if pattern.fullmatch(name)]
+      if len(matches) != 1:
+        msg = (
+          f"expected exactly 1 app Info.plist in {archive_desc} {archive_path.name}, "
+          f"found {len(matches)}: {matches!r}"
+        )
+        raise ReleaseToolError(msg)
+      plist_bytes = zf.read(matches[0])
+  except zipfile.BadZipFile as err:
+    msg = f"{archive_path.name} is not a valid zip archive: {err}"
+    raise ReleaseToolError(msg) from err
+
+  info = parse_ios_info_plist(plist_bytes)
+  if info.platform_name != expected_platform:
+    msg = (
+      f"{archive_path.name} DTPlatformName {info.platform_name!r} does not match "
+      f"expected {expected_platform!r}"
+    )
+    raise ReleaseToolError(msg)
+  return info
+
+
+def validate_ios_pair(
+  simulator_info: IosBundleInfo,
+  ipa_info: IosBundleInfo,
+  expected_bundle_id: str,
+) -> SemVer:
+  """Validate that simulator and device builds share identity/version and strict SemVer."""
+  for label, info in (("simulator .app.zip", simulator_info), ("unsigned .ipa", ipa_info)):
+    if info.bundle_id != expected_bundle_id:
+      msg = (
+        f"iOS {label} bundle ID {info.bundle_id!r} does not match expected {expected_bundle_id!r}"
+      )
+      raise ReleaseToolError(msg)
+
+  if simulator_info.version_name != ipa_info.version_name:
+    msg = (
+      f"simulator MARKETING_VERSION {simulator_info.version_name!r} does not match "
+      f"IPA MARKETING_VERSION {ipa_info.version_name!r}"
+    )
+    raise ReleaseToolError(msg)
+  if simulator_info.version_code != ipa_info.version_code:
+    msg = (
+      f"simulator CFBundleVersion {simulator_info.version_code} does not match "
+      f"IPA CFBundleVersion {ipa_info.version_code}"
+    )
+    raise ReleaseToolError(msg)
+
+  version = SemVer.parse(ipa_info.version_name)
+  if version is None:
+    msg = (
+      f"MARKETING_VERSION {ipa_info.version_name!r} is not a plain MAJOR.MINOR.PATCH "
+      "semantic version (three non-negative integers without leading zeros, and no suffix "
+      "such as '-dev')"
+    )
+    raise ReleaseToolError(msg)
+  return version
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -365,12 +523,34 @@ def check_new_version_against_releases(
 
 
 def check_version_code(
-  new_version_code: int, previous_version_code: int, previous_tag: str
+  new_version_code: int,
+  previous_version_code: int,
+  previous_tag: str,
+  *,
+  label: str = "versionCode",
 ) -> None:
   if new_version_code <= previous_version_code:
     msg = (
-      f"versionCode {new_version_code} must be strictly greater than versionCode "
+      f"{label} {new_version_code} must be strictly greater than {label} "
       f"{previous_version_code} of the previous release {previous_tag}"
+    )
+    raise ReleaseToolError(msg)
+
+
+def check_platform_parity(
+  *,
+  android_version: SemVer,
+  android_version_code: int,
+  ios_version: SemVer,
+  ios_version_code: int,
+) -> None:
+  if ios_version != android_version:
+    msg = f"iOS version ({ios_version}) does not match Android versionName ({android_version})"
+    raise ReleaseToolError(msg)
+  if ios_version_code != android_version_code:
+    msg = (
+      f"iOS CFBundleVersion ({ios_version_code}) does not match Android versionCode "
+      f"({android_version_code})"
     )
     raise ReleaseToolError(msg)
 
@@ -387,6 +567,20 @@ def find_apk_asset(release: Release, asset_prefix: str, version: SemVer) -> Rele
   raise ReleaseToolError(msg)
 
 
+def find_optional_ios_asset(
+  release: Release, asset_prefix: str, version: SemVer
+) -> tuple[ReleaseAsset, str] | None:
+  """Return `(asset, expected_platform)` if `release` contains a known iOS build asset."""
+  by_name = {asset.name: asset for asset in release.assets}
+  ipa_name = ios_ipa_asset_name(asset_prefix, version)
+  if ipa_name in by_name:
+    return by_name[ipa_name], IOS_DEVICE_PLATFORM
+  sim_name = ios_simulator_zip_asset_name(asset_prefix, version)
+  if sim_name in by_name:
+    return by_name[sim_name], IOS_SIMULATOR_PLATFORM
+  return None
+
+
 # ---------------------------------------------------------------------------------------------------
 # Release notes
 # ---------------------------------------------------------------------------------------------------
@@ -401,26 +595,43 @@ class ReleaseNotesInput:
   apk_name: str
   apk_sha256: str
   cert_sha256: str
+  ios_simulator_zip_name: str
+  ios_simulator_zip_sha256: str
+  ios_ipa_name: str
+  ios_ipa_sha256: str
 
 
 def format_release_notes(notes: ReleaseNotesInput) -> str:
   short_commit = notes.commit[:12]
   return (
     f"Built from commit [`{short_commit}`](https://github.com/{notes.repo}/commit/{notes.commit})"
-    f" (versionCode {notes.version_code}).\n"
+    f" (versionCode / CFBundleVersion {notes.version_code}).\n"
     "\n"
     "### Verification\n"
     "\n"
     "| | |\n"
     "| --- | --- |\n"
     f"| `{notes.apk_name}` SHA-256 | `{notes.apk_sha256.lower()}` |\n"
-    f"| Signing certificate SHA-256 | `{format_fingerprint(notes.cert_sha256)}` |\n"
+    f"| Android signing certificate SHA-256 | `{format_fingerprint(notes.cert_sha256)}` |\n"
+    f"| `{notes.ios_simulator_zip_name}` SHA-256 | `{notes.ios_simulator_zip_sha256.lower()}` |\n"
+    f"| `{notes.ios_ipa_name}` SHA-256 | `{notes.ios_ipa_sha256.lower()}` |\n"
     "\n"
-    "Verify the build provenance attestation with:\n"
+    "Verify the build provenance attestations with:\n"
     "\n"
     "```sh\n"
     f"gh attestation verify {notes.apk_name} --repo {notes.repo}\n"
+    f"gh attestation verify {notes.ios_simulator_zip_name} --repo {notes.repo}\n"
+    f"gh attestation verify {notes.ios_ipa_name} --repo {notes.repo}\n"
     "```\n"
+    "\n"
+    "### iOS Testing Notes\n"
+    "\n"
+    f"- **iOS Simulator (macOS + Xcode):** Unzip `{notes.ios_simulator_zip_name}` and drag "
+    "`shhhhhh.app` onto an open iOS Simulator window (or run "
+    "`xcrun simctl install booted shhhhhh.app`).\n"
+    f"- **Physical iPhone (unsigned):** `{notes.ios_ipa_name}` is unsigned and must be re-signed "
+    "with your own Apple ID using a sideloading tool (such as Sideloadly, AltStore, or SideStore) "
+    "or Xcode before installing.\n"
   )
 
 
@@ -490,11 +701,53 @@ def cmd_cert_digest(args: argparse.Namespace) -> None:
   write_github_outputs({"cert-sha256": digest})
 
 
+def cmd_ios_info(args: argparse.Namespace) -> None:
+  sim_info = read_ios_archive_info(args.simulator_zip, expected_platform=IOS_SIMULATOR_PLATFORM)
+  ipa_info = read_ios_archive_info(args.ipa, expected_platform=IOS_DEVICE_PLATFORM)
+  print(
+    f"iOS simulator zip {args.simulator_zip}: bundle={sim_info.bundle_id} "
+    f"CFBundleVersion={sim_info.version_code} CFBundleShortVersionString={sim_info.version_name}",
+    file=sys.stderr,
+  )
+  print(
+    f"iOS unsigned IPA {args.ipa}: bundle={ipa_info.bundle_id} "
+    f"CFBundleVersion={ipa_info.version_code} CFBundleShortVersionString={ipa_info.version_name}",
+    file=sys.stderr,
+  )
+
+  version = validate_ios_pair(sim_info, ipa_info, args.expected_bundle_id)
+  write_github_outputs(
+    {
+      "version-name": str(version),
+      "version-code": str(ipa_info.version_code),
+      "tag": version.tag,
+      "simulator-zip-name": ios_simulator_zip_asset_name(args.asset_prefix, version),
+      "ipa-name": ios_ipa_asset_name(args.asset_prefix, version),
+      "dsym-zip-name": ios_dsym_zip_asset_name(args.asset_prefix, version),
+    }
+  )
+
+
 def cmd_check_version(args: argparse.Namespace) -> None:
   new_version = SemVer.parse(args.version_name)
   if new_version is None:
     msg = f"versionName {args.version_name!r} is not a plain MAJOR.MINOR.PATCH semantic version"
     raise ReleaseToolError(msg)
+
+  ios_version = SemVer.parse(args.ios_version_name)
+  if ios_version is None:
+    msg = (
+      f"iOS MARKETING_VERSION {args.ios_version_name!r} is not a plain MAJOR.MINOR.PATCH "
+      "semantic version"
+    )
+    raise ReleaseToolError(msg)
+
+  check_platform_parity(
+    android_version=new_version,
+    android_version_code=args.version_code,
+    ios_version=ios_version,
+    ios_version_code=args.ios_version_code,
+  )
 
   client = GitHubClient(args.repo, args.token)
 
@@ -512,15 +765,41 @@ def cmd_check_version(args: argparse.Namespace) -> None:
 
   asset = find_apk_asset(highest.release, args.asset_prefix, highest.version)
   with tempfile.TemporaryDirectory() as tmp_dir:
-    previous_apk = Path(tmp_dir) / asset.name
+    tmp_root = Path(tmp_dir)
+    previous_apk = tmp_root / asset.name
     print(f"Downloading {asset.name} from release {highest.release.tag_name}...", file=sys.stderr)
     client.download_asset(asset, previous_apk)
     previous_info = read_apk_info(args.aapt2, previous_apk)
+    check_version_code(args.version_code, previous_info.version_code, highest.release.tag_name)
 
-  check_version_code(args.version_code, previous_info.version_code, highest.release.tag_name)
+    ios_asset = find_optional_ios_asset(highest.release, args.asset_prefix, highest.version)
+    if ios_asset is None:
+      print(
+        f"Previous release {highest.release.tag_name} has no iOS asset; "
+        "skipping previous iOS build number comparison.",
+        file=sys.stderr,
+      )
+    else:
+      prev_ios_asset, prev_ios_platform = ios_asset
+      previous_ios_path = tmp_root / prev_ios_asset.name
+      print(
+        f"Downloading {prev_ios_asset.name} from release {highest.release.tag_name}...",
+        file=sys.stderr,
+      )
+      client.download_asset(prev_ios_asset, previous_ios_path)
+      previous_ios_info = read_ios_archive_info(
+        previous_ios_path, expected_platform=prev_ios_platform
+      )
+      check_version_code(
+        args.ios_version_code,
+        previous_ios_info.version_code,
+        highest.release.tag_name,
+        label="CFBundleVersion",
+      )
+
   print(
-    f"OK: {new_version} (versionCode {args.version_code}) > {highest.version} "
-    f"(versionCode {previous_info.version_code})",
+    f"OK: {new_version} (versionCode / CFBundleVersion {args.version_code}) > "
+    f"{highest.version} (Android versionCode {previous_info.version_code})",
     file=sys.stderr,
   )
 
@@ -533,7 +812,12 @@ def cmd_release_notes(args: argparse.Namespace) -> None:
   if not re.fullmatch(r"[0-9a-f]{40}", args.commit):
     msg = f"invalid commit SHA: {args.commit!r}"
     raise ReleaseToolError(msg)
-  for name, value in (("apk-sha256", args.apk_sha256), ("cert-sha256", args.cert_sha256)):
+  for name, value in (
+    ("apk-sha256", args.apk_sha256),
+    ("cert-sha256", args.cert_sha256),
+    ("ios-simulator-zip-sha256", args.ios_simulator_zip_sha256),
+    ("ios-ipa-sha256", args.ios_ipa_sha256),
+  ):
     if not re.fullmatch(r"[0-9a-fA-F]{64}", value):
       msg = f"invalid --{name}: {value!r}"
       raise ReleaseToolError(msg)
@@ -547,6 +831,10 @@ def cmd_release_notes(args: argparse.Namespace) -> None:
       apk_name=args.apk_name,
       apk_sha256=args.apk_sha256,
       cert_sha256=args.cert_sha256,
+      ios_simulator_zip_name=args.ios_simulator_zip_name,
+      ios_simulator_zip_sha256=args.ios_simulator_zip_sha256,
+      ios_ipa_name=args.ios_ipa_name,
+      ios_ipa_sha256=args.ios_ipa_sha256,
     )
   )
   args.output.write_text(body, encoding="utf-8")
@@ -554,7 +842,7 @@ def cmd_release_notes(args: argparse.Namespace) -> None:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-  parser = argparse.ArgumentParser(description="Helpers for the android-release workflow.")
+  parser = argparse.ArgumentParser(description="Helpers for the unified release workflow.")
   subparsers = parser.add_subparsers(dest="command", required=True)
 
   apk_info = subparsers.add_parser("apk-info", help="Read and validate APK version info.")
@@ -573,6 +861,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
   cert_digest.add_argument("--apk", type=Path, required=True, help="Path to the signed APK.")
   cert_digest.set_defaults(func=cmd_cert_digest)
 
+  ios_info = subparsers.add_parser(
+    "ios-info", help="Read and validate iOS simulator .app.zip and unsigned .ipa version info."
+  )
+  ios_info.add_argument(
+    "--simulator-zip", type=Path, required=True, help="Path to the iOS simulator .app.zip."
+  )
+  ios_info.add_argument("--ipa", type=Path, required=True, help="Path to the unsigned .ipa.")
+  ios_info.add_argument("--expected-bundle-id", required=True, help="Expected CFBundleIdentifier.")
+  ios_info.add_argument("--asset-prefix", required=True, help="Release asset name prefix.")
+  ios_info.set_defaults(func=cmd_ios_info)
+
   check_version = subparsers.add_parser(
     "check-version", help="Verify the new version is greater than all existing releases."
   )
@@ -587,8 +886,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     help="GitHub token. Defaults to the GH_TOKEN or GITHUB_TOKEN env var.",
   )
   check_version.add_argument("--aapt2", type=Path, required=True, help="Path to the aapt2 binary.")
-  check_version.add_argument("--version-name", required=True, help="New versionName.")
-  check_version.add_argument("--version-code", type=int, required=True, help="New versionCode.")
+  check_version.add_argument("--version-name", required=True, help="New Android versionName.")
+  check_version.add_argument(
+    "--version-code", type=int, required=True, help="New Android versionCode."
+  )
+  check_version.add_argument("--ios-version-name", required=True, help="New iOS MARKETING_VERSION.")
+  check_version.add_argument(
+    "--ios-version-code", type=int, required=True, help="New iOS CURRENT_PROJECT_VERSION."
+  )
   check_version.add_argument("--asset-prefix", required=True, help="Release asset name prefix.")
   check_version.set_defaults(func=cmd_check_version)
 
@@ -605,6 +910,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
   release_notes.add_argument("--apk-sha256", required=True, help="SHA-256 of the APK.")
   release_notes.add_argument(
     "--cert-sha256", required=True, help="SHA-256 of the signing certificate."
+  )
+  release_notes.add_argument(
+    "--ios-simulator-zip-name", required=True, help="iOS simulator .app.zip asset file name."
+  )
+  release_notes.add_argument(
+    "--ios-simulator-zip-sha256", required=True, help="SHA-256 of the iOS simulator .app.zip."
+  )
+  release_notes.add_argument(
+    "--ios-ipa-name", required=True, help="iOS unsigned .ipa asset file name."
+  )
+  release_notes.add_argument(
+    "--ios-ipa-sha256", required=True, help="SHA-256 of the iOS unsigned .ipa."
   )
   release_notes.add_argument(
     "--output", type=Path, required=True, help="File to write the Markdown body to."
