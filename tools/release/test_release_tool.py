@@ -450,8 +450,8 @@ class IosBundleInspectionTest(unittest.TestCase):
         read_ios_archive_info(ipa, expected_platform=IOS_DEVICE_PLATFORM)
 
   def test_validate_ios_pair_rejects_dev_suffix(self) -> None:
-    sim = IosBundleInfo("prefix924.shhhhhh", 1000002, "1.0.2", IOS_SIMULATOR_PLATFORM)
-    ipa = IosBundleInfo("prefix924.shhhhhh", 1000002, "1.0.2", IOS_DEVICE_PLATFORM)
+    sim = IosBundleInfo("prefix924.shhhhhh", 1000002, "1.0.2-dev", IOS_SIMULATOR_PLATFORM)
+    ipa = IosBundleInfo("prefix924.shhhhhh", 1000002, "1.0.2-dev", IOS_DEVICE_PLATFORM)
     with self.assertRaisesRegex(ReleaseToolError, "plain MAJOR.MINOR.PATCH"):
       validate_ios_pair(sim, ipa, "prefix924.shhhhhh")
 
